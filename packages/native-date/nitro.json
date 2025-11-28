@@ -1,0 +1,16 @@
+{
+  "cxxNamespace": ["rnpackages_nativedate"],
+  "ios": {
+    "iosModuleName": "NativeDate"
+  },
+  "android": {
+    "androidNamespace": ["rnpackages","nativedate"],
+    "androidCxxLibName": "rnpackages_nativedate"
+  },
+  "autolinking": {
+    "NativeDate": {
+      "cpp": "HybridNativeDate"
+    }
+  },
+  "ignorePaths": ["node_modules"]
+}

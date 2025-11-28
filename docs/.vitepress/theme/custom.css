@@ -1,0 +1,66 @@
+/* Benchmark table styling */
+.benchmark-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.9rem;
+}
+
+.benchmark-table th {
+  background: var(--vp-c-bg-soft);
+  padding: 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid var(--vp-c-divider);
+}
+
+.benchmark-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.benchmark-table tr:hover {
+  background: var(--vp-c-bg-soft);
+}
+
+/* Winner cell - green background */
+.winner {
+  background-color: #d4edda !important;
+  color: #155724;
+  font-weight: 600;
+}
+
+.dark .winner {
+  background-color: #1e4620 !important;
+  color: #75b798;
+}
+
+/* Speed multiplier badge */
+.speed-badge {
+  display: inline-block;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-left: 0.25rem;
+}
+
+.speed-badge.extreme {
+  background-color: #28a745;
+  color: white;
+}
+
+.speed-badge.high {
+  background-color: #5cb85c;
+  color: white;
+}
+
+.speed-badge.medium {
+  background-color: #8bc34a;
+  color: white;
+}
+
+.speed-badge.low {
+  background-color: #cddc39;
+  color: #333;
+}
