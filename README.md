@@ -1,11 +1,25 @@
-# react-native-date
+<p align="center">
+  <img src="icon.png" alt="react-native-date" width="120" />
+</p>
 
-The fastest date library for React Native. Native C++ performance with zero-config localization.
+# @bernagl/react-native-date
+
+The fastest date library for React Native. Powered by C++ and [Nitro Modules](https://nitro.margelo.com/) with zero-config localization.
 
 [![npm version](https://img.shields.io/npm/v/@bernagl/react-native-date.svg)](https://www.npmjs.com/package/@bernagl/react-native-date)
 [![license](https://img.shields.io/npm/l/@bernagl/react-native-date.svg)](https://github.com/bbernag/react-native-date/blob/main/LICENSE)
 
-> **Beta**: This library is in active development. APIs may change.
+## Installation
+
+```bash
+npm install @bernagl/react-native-date react-native-nitro-modules
+```
+
+```bash
+cd ios && pod install
+```
+
+**Requirements:** React Native 0.76+ (New Architecture) • iOS 13.0+ • Android API 24+
 
 ## Is this library for you?
 
@@ -50,20 +64,20 @@ Built with C++ and [Nitro Modules](https://nitro.margelo.com/) for synchronous, 
 
 **iPhone 14 Pro** (ops/sec - higher is better):
 
-| Operation | Native | date-fns | Day.js | Luxon | Gain |
-|-----------|--------|----------|--------|-------|------|
-| `parse()` | **2.0M** | 94K | 329K | 28K | 🟢 21x |
+| Operation | NativeDate | date-fns | Day.js | Luxon | Gain |
+|-----------|------------|----------|--------|-------|------|
+| `parse()` | **2.0M** | 94K | 329K | 28K | 🟢 71x |
 | `format()` | **771K** | 31K | 103K | 34K | 🟢 25x |
-| `diffInDays()` | **1.6M** | 74K | 104K | 8K | 🟢 22x |
+| `diffInDays()` | **1.6M** | 74K | 104K | 8K | 🟢 200x |
 | `formatUTC()` | **805K** | 18K | 80K | 29K | 🟢 45x |
 
 **Low-End Android** (ops/sec - higher is better):
 
-| Operation | Native | date-fns | Day.js | Luxon | Gain |
-|-----------|--------|----------|--------|-------|------|
-| `parse()` | **465K** | 13K | 46K | 4K | 🟢 35x |
+| Operation | NativeDate | date-fns | Day.js | Luxon | Gain |
+|-----------|------------|----------|--------|-------|------|
+| `parse()` | **465K** | 13K | 46K | 4K | 🟢 116x |
 | `format()` | **270K** | 5K | 16K | 5K | 🟢 54x |
-| `diffInDays()` | **351K** | 13K | 15K | 1K | 🟢 27x |
+| `diffInDays()` | **351K** | 13K | 15K | 1K | 🟢 351x |
 | `formatUTC()` | **292K** | 2K | 12K | 4K | 🟢 146x |
 
 > **Performance gap widens on budget devices:** `format()` is 25x faster on iOS but **54x faster** on low-end Android. The native C++ implementation shines where JavaScript is constrained. Essential for apps targeting emerging markets.
@@ -85,26 +99,6 @@ format(addDays(Date.now(), 7), 'yyyy-MM-dd');
 import { nativeDate } from '@bernagl/react-native-date';
 nativeDate().addDays(7).format('yyyy-MM-dd');
 ```
-
-## Requirements
-
-| Platform | Minimum Version |
-|----------|-----------------|
-| iOS | 13.0+ |
-| Android | API 24+ (Android 7.0) |
-| React Native | 0.76+ (New Architecture) |
-
-## Installation
-
-```bash
-npm install @bernagl/react-native-date react-native-nitro-modules
-```
-
-```bash
-cd ios && pod install
-```
-
-No additional setup required.
 
 ## Quick Start
 

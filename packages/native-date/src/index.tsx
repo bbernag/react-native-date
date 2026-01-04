@@ -8,7 +8,12 @@ import type {
 } from './NativeDate.nitro';
 
 // types
-export type { DateComponents, LocaleInfo, TimeUnit } from './NativeDate.nitro';
+export type {
+  DateComponents,
+  LocaleInfo,
+  NativeDate,
+  TimeUnit,
+} from './NativeDate.nitro';
 
 /**
  * Accepted date input types for all functions
@@ -20,7 +25,14 @@ export type DateInput = number | string | Date;
 
 /**
  * Convert any DateInput to a timestamp (milliseconds)
- * Uses typeof check which is faster than property access
+ *
+ * Uses JS Date.parse() for strings instead of native C++ parse because:
+ * - Avoids bridge crossing overhead for simple ISO 8601 parsing
+ * - JS Date.parse() is faster for this use case since it doesn't need to cross the JS-to-native bridge
+ *
+ * For custom format parsing, use `parseFormat()` which leverages native C++ for complex patterns.
+ *
+ * @see NativeDateModule.parse - Native C++ alternative (available via NativeDateModule directly)
  */
 function toTimestamp(date: DateInput): number {
   // typeof is ~10-20x faster than property lookup
@@ -362,7 +374,24 @@ export type Timezone =
   // Allow any string for edge cases
   | (string & {});
 
-const NativeDateModule =
+/**
+ * Direct access to the native C++ module
+ *
+ * Use this when you need to bypass the JS wrapper optimizations and call native functions directly.
+ * Most users should use the exported functions (parse, format, etc.) which are optimized for performance.
+ *
+ * @example
+ * ```typescript
+ * import { NativeDateModule } from '@bernagl/react-native-date';
+ *
+ * // Call native parse directly (crosses JS-to-native bridge)
+ * const timestamp = NativeDateModule.parse('2024-12-25');
+ *
+ * // Call native format directly
+ * const formatted = NativeDateModule.format(timestamp, 'yyyy-MM-dd');
+ * ```
+ */
+export const NativeDateModule =
   NitroModules.createHybridObject<NativeDate>('NativeDate');
 
 /**
@@ -375,7 +404,17 @@ export function now(): number {
 
 /**
  * Parse an ISO 8601 date string into a timestamp
- * Uses JS Date.parse (no bridge crossing)
+ *
+ * Uses JS Date.parse() instead of native C++ because:
+ * - Avoids bridge crossing overhead for simple ISO 8601 parsing
+ * - JS engine's built-in parser is highly optimized for standard formats
+ * - No performance benefit from native for this simple operation
+ *
+ * For custom format parsing (e.g., 'MM/dd/yyyy'), use `parseFormat()` which uses native C++.
+ *
+ * @see NativeDateModule.parse - Native C++ alternative (use directly if needed)
+ * @see parseFormat - For custom format patterns (uses native C++)
+ *
  * @throws Error if the date string is invalid
  */
 export function parse(dateString: string): number {
@@ -388,6 +427,13 @@ export function parse(dateString: string): number {
 
 /**
  * Safely parse a date string, returning null if invalid
+ *
+ * Uses JS Date.parse() instead of native C++ because:
+ * - Avoids bridge crossing overhead for simple ISO 8601 parsing
+ * - JS engine's built-in parser is highly optimized for standard formats
+ *
+ * @see NativeDateModule.parse - Native C++ alternative (use directly if needed)
+ * @see tryParseFormat - For custom format patterns (uses native C++)
  */
 export function tryParse(dateString: string): number | null {
   const result = Date.parse(dateString);
@@ -450,10 +496,18 @@ export function tryParseFormat(
 
 /**
  * Create a timestamp from date components
- * @param components - Object with year, month, day, and optional time fields
- * @returns Timestamp in milliseconds
  *
- * Note: month is 1-indexed (1-12)
+ * Uses JS Date.UTC() instead of native C++ because:
+ * - Avoids bridge crossing overhead for simple timestamp creation
+ * - Date.UTC() is a single optimized call with no parsing complexity
+ * - Native alternative would require serializing/deserializing the components object
+ *
+ * @param components - Object with year, month, day, and optional time fields
+ * @returns Timestamp in milliseconds (UTC)
+ *
+ * Note: month is 1-indexed (1-12), unlike JS Date which uses 0-indexed months
+ *
+ * @see NativeDateModule - Native module available for direct access if needed
  */
 export function fromComponents(components: {
   year: number;
@@ -1169,393 +1223,8 @@ export function diffInSeconds(date1: DateInput, date2: DateInput): number {
 }
 
 // =============================================================================
-// CHAINABLE API
+// CHAINABLE API (re-exported from chain.tsx for backwards compatibility)
 // =============================================================================
+// For better tree-shaking, import directly from '@bernagl/react-native-date/chain'
 
-/**
- * Immutable chainable date wrapper
- * Each method returns a new instance, leaving the original unchanged
- */
-export class NativeDateChain {
-  private readonly ts: number;
-
-  constructor(timestamp: number) {
-    this.ts = timestamp;
-  }
-
-  // Static factory methods
-  static now(): NativeDateChain {
-    return new NativeDateChain(now());
-  }
-
-  static parse(dateString: string): NativeDateChain {
-    return new NativeDateChain(parse(dateString));
-  }
-
-  static from(value: number | string | Date): NativeDateChain {
-    if (typeof value === 'number') {
-      return new NativeDateChain(value);
-    }
-    if (typeof value === 'string') {
-      return NativeDateChain.parse(value);
-    }
-    return new NativeDateChain(value.getTime());
-  }
-
-  // Terminal methods (return values, not chain)
-  valueOf(): number {
-    return this.ts;
-  }
-
-  toDate(): Date {
-    return new Date(this.ts);
-  }
-
-  format(pattern: string): string {
-    return format(this.ts, pattern);
-  }
-
-  formatUTC(pattern: string): string {
-    return formatUTC(this.ts, pattern);
-  }
-
-  formatInTimezone(pattern: string, tz: Timezone): string {
-    return formatInTimezone(this.ts, pattern, tz);
-  }
-
-  toISOString(): string {
-    return toISOString(this.ts);
-  }
-
-  formatDate(): string {
-    return formatDate(this.ts);
-  }
-
-  formatDateTime(): string {
-    return formatDateTime(this.ts);
-  }
-
-  // Getters (return values)
-  get timestamp(): number {
-    return this.ts;
-  }
-
-  get year(): number {
-    return getYear(this.ts);
-  }
-
-  get month(): number {
-    return getMonth(this.ts);
-  }
-
-  get date(): number {
-    return getDate(this.ts);
-  }
-
-  get day(): number {
-    return getDay(this.ts);
-  }
-
-  get hours(): number {
-    return getHours(this.ts);
-  }
-
-  get minutes(): number {
-    return getMinutes(this.ts);
-  }
-
-  get seconds(): number {
-    return getSeconds(this.ts);
-  }
-
-  get milliseconds(): number {
-    return getMilliseconds(this.ts);
-  }
-
-  get daysInMonth(): number {
-    return getDaysInMonth(this.ts);
-  }
-
-  getComponents(): DateComponents {
-    return getComponents(this.ts);
-  }
-
-  // Arithmetic (return new chain)
-  add(amount: number, unit: TimeUnit): NativeDateChain {
-    return new NativeDateChain(add(this.ts, amount, unit));
-  }
-
-  subtract(amount: number, unit: TimeUnit): NativeDateChain {
-    return new NativeDateChain(subtract(this.ts, amount, unit));
-  }
-
-  addYears(amount: number): NativeDateChain {
-    return new NativeDateChain(addYears(this.ts, amount));
-  }
-
-  addMonths(amount: number): NativeDateChain {
-    return new NativeDateChain(addMonths(this.ts, amount));
-  }
-
-  addWeeks(amount: number): NativeDateChain {
-    return new NativeDateChain(addWeeks(this.ts, amount));
-  }
-
-  addDays(amount: number): NativeDateChain {
-    return new NativeDateChain(addDays(this.ts, amount));
-  }
-
-  addHours(amount: number): NativeDateChain {
-    return new NativeDateChain(addHours(this.ts, amount));
-  }
-
-  addMinutes(amount: number): NativeDateChain {
-    return new NativeDateChain(addMinutes(this.ts, amount));
-  }
-
-  addSeconds(amount: number): NativeDateChain {
-    return new NativeDateChain(addSeconds(this.ts, amount));
-  }
-
-  subYears(amount: number): NativeDateChain {
-    return new NativeDateChain(subYears(this.ts, amount));
-  }
-
-  subMonths(amount: number): NativeDateChain {
-    return new NativeDateChain(subMonths(this.ts, amount));
-  }
-
-  subWeeks(amount: number): NativeDateChain {
-    return new NativeDateChain(subWeeks(this.ts, amount));
-  }
-
-  subDays(amount: number): NativeDateChain {
-    return new NativeDateChain(subDays(this.ts, amount));
-  }
-
-  subHours(amount: number): NativeDateChain {
-    return new NativeDateChain(subHours(this.ts, amount));
-  }
-
-  subMinutes(amount: number): NativeDateChain {
-    return new NativeDateChain(subMinutes(this.ts, amount));
-  }
-
-  subSeconds(amount: number): NativeDateChain {
-    return new NativeDateChain(subSeconds(this.ts, amount));
-  }
-
-  // Boundaries (return new chain)
-  startOf(unit: TimeUnit): NativeDateChain {
-    return new NativeDateChain(startOf(this.ts, unit));
-  }
-
-  endOf(unit: TimeUnit): NativeDateChain {
-    return new NativeDateChain(endOf(this.ts, unit));
-  }
-
-  startOfDay(): NativeDateChain {
-    return new NativeDateChain(startOfDay(this.ts));
-  }
-
-  endOfDay(): NativeDateChain {
-    return new NativeDateChain(endOfDay(this.ts));
-  }
-
-  startOfWeek(): NativeDateChain {
-    return new NativeDateChain(startOfWeek(this.ts));
-  }
-
-  endOfWeek(): NativeDateChain {
-    return new NativeDateChain(endOfWeek(this.ts));
-  }
-
-  startOfMonth(): NativeDateChain {
-    return new NativeDateChain(startOfMonth(this.ts));
-  }
-
-  endOfMonth(): NativeDateChain {
-    return new NativeDateChain(endOfMonth(this.ts));
-  }
-
-  startOfYear(): NativeDateChain {
-    return new NativeDateChain(startOfYear(this.ts));
-  }
-
-  endOfYear(): NativeDateChain {
-    return new NativeDateChain(endOfYear(this.ts));
-  }
-
-  // Setters (return new chain with modified value)
-  setYear(year: number): NativeDateChain {
-    const d = new Date(this.ts);
-    d.setFullYear(year);
-    return new NativeDateChain(d.getTime());
-  }
-
-  setMonth(month: number): NativeDateChain {
-    const d = new Date(this.ts);
-    d.setMonth(month - 1); // Convert 1-indexed to 0-indexed
-    return new NativeDateChain(d.getTime());
-  }
-
-  setDate(date: number): NativeDateChain {
-    const d = new Date(this.ts);
-    d.setDate(date);
-    return new NativeDateChain(d.getTime());
-  }
-
-  setHours(hours: number): NativeDateChain {
-    const d = new Date(this.ts);
-    d.setHours(hours);
-    return new NativeDateChain(d.getTime());
-  }
-
-  setMinutes(minutes: number): NativeDateChain {
-    const d = new Date(this.ts);
-    d.setMinutes(minutes);
-    return new NativeDateChain(d.getTime());
-  }
-
-  setSeconds(seconds: number): NativeDateChain {
-    const d = new Date(this.ts);
-    d.setSeconds(seconds);
-    return new NativeDateChain(d.getTime());
-  }
-
-  setMilliseconds(milliseconds: number): NativeDateChain {
-    const d = new Date(this.ts);
-    d.setMilliseconds(milliseconds);
-    return new NativeDateChain(d.getTime());
-  }
-
-  // Timezone (return new chain)
-  toTimezone(tz: Timezone): NativeDateChain {
-    return new NativeDateChain(toTimezone(this.ts, tz));
-  }
-
-  toUTC(): NativeDateChain {
-    return new NativeDateChain(toUTC(this.ts));
-  }
-
-  // Comparisons (return boolean)
-  isBefore(other: NativeDateChain | number): boolean {
-    const otherTs = typeof other === 'number' ? other : other.ts;
-    return isBefore(this.ts, otherTs);
-  }
-
-  isAfter(other: NativeDateChain | number): boolean {
-    const otherTs = typeof other === 'number' ? other : other.ts;
-    return isAfter(this.ts, otherTs);
-  }
-
-  isSame(other: NativeDateChain | number, unit: TimeUnit): boolean {
-    const otherTs = typeof other === 'number' ? other : other.ts;
-    return isSame(this.ts, otherTs, unit);
-  }
-
-  isSameDay(other: NativeDateChain | number): boolean {
-    const otherTs = typeof other === 'number' ? other : other.ts;
-    return isSameDay(this.ts, otherTs);
-  }
-
-  isSameMonth(other: NativeDateChain | number): boolean {
-    const otherTs = typeof other === 'number' ? other : other.ts;
-    return isSameMonth(this.ts, otherTs);
-  }
-
-  isSameYear(other: NativeDateChain | number): boolean {
-    const otherTs = typeof other === 'number' ? other : other.ts;
-    return isSameYear(this.ts, otherTs);
-  }
-
-  // Predicates (return boolean)
-  isToday(): boolean {
-    return isToday(this.ts);
-  }
-
-  isTomorrow(): boolean {
-    return isTomorrow(this.ts);
-  }
-
-  isYesterday(): boolean {
-    return isYesterday(this.ts);
-  }
-
-  isPast(): boolean {
-    return isPast(this.ts);
-  }
-
-  isFuture(): boolean {
-    return isFuture(this.ts);
-  }
-
-  isWeekend(): boolean {
-    return isWeekend(this.ts);
-  }
-
-  isLeapYear(): boolean {
-    return isLeapYear(this.ts);
-  }
-
-  isValid(): boolean {
-    return isValid(this.ts);
-  }
-
-  // Diff (return number)
-  diff(other: NativeDateChain | number, unit: TimeUnit): number {
-    const otherTs = typeof other === 'number' ? other : other.ts;
-    return diff(this.ts, otherTs, unit);
-  }
-
-  diffInYears(other: NativeDateChain | number): number {
-    const otherTs = typeof other === 'number' ? other : other.ts;
-    return diffInYears(this.ts, otherTs);
-  }
-
-  diffInMonths(other: NativeDateChain | number): number {
-    const otherTs = typeof other === 'number' ? other : other.ts;
-    return diffInMonths(this.ts, otherTs);
-  }
-
-  diffInWeeks(other: NativeDateChain | number): number {
-    const otherTs = typeof other === 'number' ? other : other.ts;
-    return diffInWeeks(this.ts, otherTs);
-  }
-
-  diffInDays(other: NativeDateChain | number): number {
-    const otherTs = typeof other === 'number' ? other : other.ts;
-    return diffInDays(this.ts, otherTs);
-  }
-
-  diffInHours(other: NativeDateChain | number): number {
-    const otherTs = typeof other === 'number' ? other : other.ts;
-    return diffInHours(this.ts, otherTs);
-  }
-
-  diffInMinutes(other: NativeDateChain | number): number {
-    const otherTs = typeof other === 'number' ? other : other.ts;
-    return diffInMinutes(this.ts, otherTs);
-  }
-
-  diffInSeconds(other: NativeDateChain | number): number {
-    const otherTs = typeof other === 'number' ? other : other.ts;
-    return diffInSeconds(this.ts, otherTs);
-  }
-
-  // Clone
-  clone(): NativeDateChain {
-    return new NativeDateChain(this.ts);
-  }
-}
-
-/**
- * Factory function for creating NativeDateChain instances
- * @param value - timestamp, date string, Date object, or undefined for now()
- */
-export function nativeDate(value?: number | string | Date): NativeDateChain {
-  if (value === undefined) {
-    return NativeDateChain.now();
-  }
-  return NativeDateChain.from(value);
-}
+export { NativeDateChain, nativeDate } from './chain';

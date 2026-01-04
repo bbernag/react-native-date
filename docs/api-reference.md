@@ -340,7 +340,11 @@ const formatted = await formatManyAsync(timestamps, 'MMMM d');
 Immutable, fluent interface similar to [Day.js](https://day.js.org/).
 
 ```typescript
+// Standard import (also re-exports chainable API)
 import { nativeDate } from '@bernagl/react-native-date';
+
+// Optimized import (better tree-shaking if only using chainable API)
+import { nativeDate } from '@bernagl/react-native-date/chain';
 
 nativeDate()
   .addDays(7)
@@ -400,3 +404,21 @@ type LocaleInfo = {
 
 type DateInput = number | string | Date;
 ```
+
+---
+
+## Advanced: Direct Native Access
+
+For advanced use cases, you can access the native C++ module directly:
+
+```typescript
+import { NativeDateModule } from '@bernagl/react-native-date';
+
+// Call native methods directly (bypasses JS wrapper optimizations)
+const timestamp = NativeDateModule.parse('2025-12-25');
+const formatted = NativeDateModule.format(timestamp, 'yyyy-MM-dd');
+```
+
+::: warning
+The wrapper functions (`parse`, `format`, etc.) include performance optimizations like using JS `Date.parse()` to avoid bridge crossings for simple operations. Use `NativeDateModule` directly only when you need specific native behavior.
+:::

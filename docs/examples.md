@@ -2,6 +2,15 @@
 
 Two API styles: **functional** (like [date-fns](https://date-fns.org/)) and **chainable** (like [Day.js](https://day.js.org/)).
 
+::: tip Tree-Shaking
+For optimal bundle size, import the chainable API separately:
+```typescript
+// Chainable API (separate entry point)
+import { nativeDate } from '@bernagl/react-native-date/chain';
+```
+Both import styles work - use `/chain` for smaller bundles when using only the chainable API.
+:::
+
 ## Formatting
 
 ```typescript

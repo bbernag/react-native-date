@@ -490,6 +490,22 @@ function Benchmark() {
     return `${(ms * 1000).toFixed(0)}µs`;
   };
 
+  const getSpeedMultiplier = (r: BenchmarkResult): string => {
+    const ops = [r.nativeOps, r.dateFnsOps, r.dayjsOps, r.luxonOps];
+    const winnerOps = Math.max(...ops);
+    const slowestOps = Math.min(...ops);
+
+    // When NativeDate wins, compare vs slowest; when other wins, compare vs NativeDate
+    const compareToOps = r.winner === 'native' ? slowestOps : r.nativeOps;
+
+    if (compareToOps === 0) return '';
+
+    const multiplier = winnerOps / compareToOps;
+    if (multiplier >= 10) return `${Math.round(multiplier)}x`;
+    if (multiplier >= 2) return `${multiplier.toFixed(1)}x`;
+    return `${multiplier.toFixed(2)}x`;
+  };
+
   const formatValue = (
     r: BenchmarkResult,
     lib: 'native' | 'date-fns' | 'dayjs' | 'luxon'
@@ -511,6 +527,18 @@ function Benchmark() {
       };
       return formatTime(timeMap[lib]);
     }
+  };
+
+  const formatValueWithMultiplier = (
+    r: BenchmarkResult,
+    lib: 'native' | 'date-fns' | 'dayjs' | 'luxon'
+  ): string => {
+    const value = formatValue(r, lib);
+    if (r.winner === lib && displayMode === 'ops') {
+      const multiplier = getSpeedMultiplier(r);
+      return `${value} (${multiplier})`;
+    }
+    return value;
   };
 
   const getWinnerStyle = (
@@ -680,7 +708,7 @@ function Benchmark() {
                       getWinnerStyle(r.winner, 'native'),
                     ]}
                   >
-                    {formatValue(r, 'native')}
+                    {formatValueWithMultiplier(r, 'native')}
                   </Text>
                   <Text
                     style={[
@@ -689,7 +717,7 @@ function Benchmark() {
                       getWinnerStyle(r.winner, 'date-fns'),
                     ]}
                   >
-                    {formatValue(r, 'date-fns')}
+                    {formatValueWithMultiplier(r, 'date-fns')}
                   </Text>
                   <Text
                     style={[
@@ -698,7 +726,7 @@ function Benchmark() {
                       getWinnerStyle(r.winner, 'dayjs'),
                     ]}
                   >
-                    {formatValue(r, 'dayjs')}
+                    {formatValueWithMultiplier(r, 'dayjs')}
                   </Text>
                   <Text
                     style={[
@@ -707,7 +735,7 @@ function Benchmark() {
                       getWinnerStyle(r.winner, 'luxon'),
                     ]}
                   >
-                    {formatValue(r, 'luxon')}
+                    {formatValueWithMultiplier(r, 'luxon')}
                   </Text>
                 </View>
               ))}

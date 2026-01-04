@@ -2,9 +2,13 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: "react-native-date",
-  description: "High-performance native date library for React Native",
+  description: "The fastest date library for React Native. Powered by C++ and Nitro Modules.",
   base: '/react-native-date/',
+  head: [
+    ['link', { rel: 'icon', href: '/react-native-date/icon.png' }]
+  ],
   themeConfig: {
+    logo: '/icon.png',
     nav: [
       { text: 'Home', link: '/' },
       { text: 'Examples', link: '/examples' },

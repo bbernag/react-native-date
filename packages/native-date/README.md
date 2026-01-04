@@ -13,7 +13,7 @@ High-performance native date library for React Native, powered by C++ and [Nitro
 
 ## Requirements
 
-- React Native 0.71+ (New Architecture required)
+- React Native 0.76+ (New Architecture required)
 - iOS 13.0+
 - Android SDK 24+
 
@@ -64,6 +64,22 @@ const daysUntil = diffInDays(christmas, timestamp);
 
 // Convenience formatters
 console.log(formatDateTime(timestamp)); // "2024-06-15 14:30:45"
+```
+
+## Chainable API
+
+Day.js-style chainable interface:
+
+```typescript
+import { nativeDate } from '@bernagl/react-native-date';
+
+nativeDate()
+  .addDays(7)
+  .startOfMonth()
+  .format('yyyy-MM-dd');
+
+// Or import separately for optimal tree-shaking
+import { nativeDate } from '@bernagl/react-native-date/chain';
 ```
 
 ## API Reference
@@ -224,24 +240,6 @@ const formatted = await formatManyAsync(timestamps, 'yyyy-MM-dd');
 
 // Get components for many timestamps
 const components = await getComponentsManyAsync(timestamps);
-```
-
-### Configuration
-
-```typescript
-import { configure, getConfig, resetConfig, getDefaultTimezone } from '@bernagl/react-native-date';
-
-// Set default timezone for formatInDefaultTimezone functions
-configure({ defaultTimezone: 'America/New_York' });
-
-// Get current config
-const config = getConfig();
-
-// Reset to defaults
-resetConfig();
-
-// Get effective default timezone
-const tz = getDefaultTimezone(); // Returns configured or device timezone
 ```
 
 ## Format Patterns

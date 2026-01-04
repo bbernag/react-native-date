@@ -1,7 +1,8 @@
 {
   "name": "@bernagl/react-native-date",
-  "version": "0.1.1",
-  "description": "High-performance native date library for React Native",
+  "version": "1.0.0",
+  "description": "The fastest date library for React Native. Powered by C++ and Nitro Modules.",
+  "sideEffects": false,
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
   "exports": {
@@ -9,6 +10,11 @@
       "source": "./src/index.tsx",
       "types": "./lib/typescript/src/index.d.ts",
       "default": "./lib/module/index.js"
+    },
+    "./chain": {
+      "source": "./src/chain.tsx",
+      "types": "./lib/typescript/src/chain.d.ts",
+      "default": "./lib/module/chain.js"
     },
     "./package.json": "./package.json"
   },
