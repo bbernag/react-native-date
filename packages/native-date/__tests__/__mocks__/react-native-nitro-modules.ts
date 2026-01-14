@@ -60,7 +60,23 @@ function getTimezoneOffsetForDate(tz: string, timestamp: number): number {
 const AVAILABLE_TIMEZONES = Object.keys(TIMEZONE_OFFSETS);
 
 function parseISO8601(dateString: string): number {
-  const date = new Date(dateString);
+  // Basic format validation - must start with YYYY-MM-DD pattern
+  if (!/^\d{4}-\d{2}-\d{2}/.test(dateString)) {
+    throw new Error(`Invalid date string: ${dateString}`);
+  }
+
+  // Match native C++ behavior: date-only strings are LOCAL time, not UTC
+  // JS Date treats 'YYYY-MM-DD' as UTC but 'YYYY-MM-DDTHH:mm:ss' as local
+  let normalizedString = dateString;
+
+  // Date-only format (YYYY-MM-DD) - append time to force local interpretation
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+    normalizedString = dateString + 'T00:00:00';
+  }
+  // DateTime without timezone - already treated as local by JS
+  // DateTime with Z or offset - already handled correctly by JS
+
+  const date = new Date(normalizedString);
   if (isNaN(date.getTime())) {
     throw new Error(`Invalid date string: ${dateString}`);
   }

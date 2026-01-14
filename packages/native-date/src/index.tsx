@@ -418,26 +418,29 @@ export function now(): number {
  * @throws Error if the date string is invalid
  */
 export function parse(dateString: string): number {
-  const result = Date.parse(dateString);
-  if (isNaN(result)) {
-    throw new Error(`Unable to parse date string: ${dateString}`);
-  }
-  return result;
+  // Use native C++ parse for consistent local time handling
+  // (JS Date.parse treats date-only strings as UTC, native treats them as local)
+  return NativeDateModule.parse(dateString);
 }
 
 /**
  * Safely parse a date string, returning null if invalid
  *
- * Uses JS Date.parse() instead of native C++ because:
- * - Avoids bridge crossing overhead for simple ISO 8601 parsing
- * - JS engine's built-in parser is highly optimized for standard formats
+ * Uses native C++ parse for consistent local time handling
+ * (JS Date.parse treats date-only strings as UTC, native treats them as local)
  *
- * @see NativeDateModule.parse - Native C++ alternative (use directly if needed)
- * @see tryParseFormat - For custom format patterns (uses native C++)
+ * @see parseFormat - For custom format patterns (uses native C++)
  */
 export function tryParse(dateString: string): number | null {
-  const result = Date.parse(dateString);
-  return isNaN(result) ? null : result;
+  // Basic format validation - must start with YYYY-MM-DD pattern
+  if (!/^\d{4}-\d{2}-\d{2}/.test(dateString)) {
+    return null;
+  }
+  try {
+    return NativeDateModule.parse(dateString);
+  } catch {
+    return null;
+  }
 }
 
 /**

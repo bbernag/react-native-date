@@ -136,8 +136,11 @@ private:
     // Internal format helper
     static std::string formatInternal(double timestamp, const std::string& pattern, bool useUTC);
 
-    // Convert components to timestamp
+    // Convert components to timestamp (UTC)
     static double componentsToTimestamp(const InternalDateComponents& components);
+
+    // Convert components to timestamp (local time)
+    static double componentsToTimestampLocal(const InternalDateComponents& components);
 
     // Parse ISO8601 date string
     static double parseISO8601(const std::string& dateString);

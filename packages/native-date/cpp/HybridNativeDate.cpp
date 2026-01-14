@@ -310,7 +310,8 @@ double HybridNativeDate::parseWithFormat(const std::string& dateString, const st
     if (dc.minute < 0 || dc.minute > 59) return std::numeric_limits<double>::quiet_NaN();
     if (dc.second < 0 || dc.second > 59) return std::numeric_limits<double>::quiet_NaN();
 
-    return componentsToTimestamp(dc);
+    // No timezone in format patterns - interpret as local time (like date-fns)
+    return componentsToTimestampLocal(dc);
 }
 
 std::string HybridNativeDate::format(double timestamp, const std::string& pattern) {
@@ -662,7 +663,7 @@ std::string HybridNativeDate::formatInternal(double timestamp, const std::string
 // MARK: - Getters
 
 DateComponents HybridNativeDate::getComponents(double timestamp) {
-    InternalDateComponents dc = timestampToComponents(timestamp);
+    InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
     return DateComponents(
         static_cast<double>(dc.year),
         static_cast<double>(dc.month),
@@ -676,41 +677,42 @@ DateComponents HybridNativeDate::getComponents(double timestamp) {
 }
 
 double HybridNativeDate::getYear(double timestamp) {
-    InternalDateComponents dc = timestampToComponents(timestamp);
+    InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
     return static_cast<double>(dc.year);
 }
 
 double HybridNativeDate::getMonth(double timestamp) {
-    InternalDateComponents dc = timestampToComponents(timestamp);
+    InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
     return static_cast<double>(dc.month);
 }
 
 double HybridNativeDate::getDate(double timestamp) {
-    InternalDateComponents dc = timestampToComponents(timestamp);
+    InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
     return static_cast<double>(dc.day);
 }
 
 double HybridNativeDate::getDay(double timestamp) {
-    return static_cast<double>(getDayOfWeek(timestamp));
+    InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
+    return static_cast<double>(dc.dayOfWeek);
 }
 
 double HybridNativeDate::getHours(double timestamp) {
-    InternalDateComponents dc = timestampToComponents(timestamp);
+    InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
     return static_cast<double>(dc.hour);
 }
 
 double HybridNativeDate::getMinutes(double timestamp) {
-    InternalDateComponents dc = timestampToComponents(timestamp);
+    InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
     return static_cast<double>(dc.minute);
 }
 
 double HybridNativeDate::getSeconds(double timestamp) {
-    InternalDateComponents dc = timestampToComponents(timestamp);
+    InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
     return static_cast<double>(dc.second);
 }
 
 double HybridNativeDate::getMilliseconds(double timestamp) {
-    InternalDateComponents dc = timestampToComponents(timestamp);
+    InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
     return static_cast<double>(dc.millisecond);
 }
 
@@ -755,18 +757,18 @@ double HybridNativeDate::getMillisecondsFromString(const std::string& dateString
 // MARK: - Date Info
 
 double HybridNativeDate::getDaysInMonth(double timestamp) {
-    InternalDateComponents dc = timestampToComponents(timestamp);
+    InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
     return static_cast<double>(daysInMonth(dc.year, dc.month));
 }
 
 bool HybridNativeDate::isLeapYear(double timestamp) {
-    InternalDateComponents dc = timestampToComponents(timestamp);
+    InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
     return isLeapYearInt(dc.year);
 }
 
 bool HybridNativeDate::isWeekend(double timestamp) {
-    int dayOfWeek = getDayOfWeek(timestamp);
-    return dayOfWeek == 0 || dayOfWeek == 6; // Sunday or Saturday
+    InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
+    return dc.dayOfWeek == 0 || dc.dayOfWeek == 6; // Sunday or Saturday
 }
 
 bool HybridNativeDate::isValid(double timestamp) {
@@ -792,7 +794,7 @@ double HybridNativeDate::add(double timestamp, double amount, TimeUnit unit) {
         case TimeUnit::WEEK:
             return timestamp + (amount * MS_PER_WEEK);
         case TimeUnit::MONTH: {
-            InternalDateComponents dc = timestampToComponents(timestamp);
+            InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
             int totalMonths = dc.month - 1 + static_cast<int>(amountInt);
             dc.year += totalMonths / 12;
             dc.month = (totalMonths % 12) + 1;
@@ -805,16 +807,16 @@ double HybridNativeDate::add(double timestamp, double amount, TimeUnit unit) {
             if (dc.day > maxDay) {
                 dc.day = maxDay;
             }
-            return componentsToTimestamp(dc);
+            return componentsToTimestampLocal(dc);
         }
         case TimeUnit::YEAR: {
-            InternalDateComponents dc = timestampToComponents(timestamp);
+            InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
             dc.year += amountInt;
             // Handle Feb 29 -> Feb 28 for non-leap years
             if (dc.month == 2 && dc.day == 29 && !isLeapYearInt(dc.year)) {
                 dc.day = 28;
             }
-            return componentsToTimestamp(dc);
+            return componentsToTimestampLocal(dc);
         }
     }
     return timestamp;
@@ -867,7 +869,7 @@ inline int64_t floorDiv(int64_t numerator, int64_t denominator) {
 double HybridNativeDate::startOf(double timestamp, TimeUnit unit) {
     int64_t ms = static_cast<int64_t>(timestamp);
 
-    // Fast path for time-based units (no component conversion needed)
+    // Fast path for sub-day units (timezone-independent)
     switch (unit) {
         case TimeUnit::MILLISECOND:
             return timestamp;
@@ -877,10 +879,8 @@ double HybridNativeDate::startOf(double timestamp, TimeUnit unit) {
             return static_cast<double>((ms / MS_PER_MINUTE) * MS_PER_MINUTE);
         case TimeUnit::HOUR:
             return static_cast<double>((ms / MS_PER_HOUR) * MS_PER_HOUR);
-        case TimeUnit::DAY:
-            return static_cast<double>(floorDayStartMs(ms));
         default:
-            // DAY, WEEK, MONTH, YEAR need full component conversion
+            // DAY, WEEK, MONTH, YEAR need local time component conversion
             return truncateToUnit(timestamp, unit);
     }
 }
@@ -888,7 +888,7 @@ double HybridNativeDate::startOf(double timestamp, TimeUnit unit) {
 double HybridNativeDate::endOf(double timestamp, TimeUnit unit) {
     int64_t ms = static_cast<int64_t>(timestamp);
 
-    // Fast path for time-based units
+    // Fast path for sub-day units (timezone-independent)
     switch (unit) {
         case TimeUnit::MILLISECOND:
             return timestamp;
@@ -899,31 +899,42 @@ double HybridNativeDate::endOf(double timestamp, TimeUnit unit) {
         case TimeUnit::HOUR:
             return static_cast<double>(((ms / MS_PER_HOUR) * MS_PER_HOUR) + MS_PER_HOUR - 1);
         case TimeUnit::DAY: {
-            int64_t dayStartMs = floorDayStartMs(ms);
-            return static_cast<double>(dayStartMs + MS_PER_DAY - 1);
+            InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
+            dc.hour = 23;
+            dc.minute = 59;
+            dc.second = 59;
+            dc.millisecond = 999;
+            return componentsToTimestampLocal(dc);
         }
         case TimeUnit::WEEK: {
-            double start = truncateToUnit(timestamp, TimeUnit::WEEK);
-            return start + (7 * MS_PER_DAY) - 1;
+            InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
+            // Calculate days until Saturday (6 - current dayOfWeek)
+            int daysToAdd = 6 - dc.dayOfWeek;
+            dc.day += daysToAdd;
+            dc.hour = 23;
+            dc.minute = 59;
+            dc.second = 59;
+            dc.millisecond = 999;
+            return componentsToTimestampLocal(dc); // mktime will normalize if day overflows
         }
         case TimeUnit::MONTH: {
-            InternalDateComponents dc = timestampToComponents(timestamp);
+            InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
             dc.day = daysInMonth(dc.year, dc.month);
             dc.hour = 23;
             dc.minute = 59;
             dc.second = 59;
             dc.millisecond = 999;
-            return componentsToTimestamp(dc);
+            return componentsToTimestampLocal(dc);
         }
         case TimeUnit::YEAR: {
-            InternalDateComponents dc = timestampToComponents(timestamp);
+            InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
             dc.month = 12;
             dc.day = 31;
             dc.hour = 23;
             dc.minute = 59;
             dc.second = 59;
             dc.millisecond = 999;
-            return componentsToTimestamp(dc);
+            return componentsToTimestampLocal(dc);
         }
         default:
             return timestamp;
@@ -1033,8 +1044,9 @@ int64_t HybridNativeDate::getMillisForUnit(TimeUnit unit) {
 }
 
 double HybridNativeDate::truncateToUnit(double timestamp, TimeUnit unit) {
-    // Use local time components for all units (consistent behavior)
-    InternalDateComponents dc = timestampToComponents(timestamp);
+    // Use LOCAL time components for all units (consistent behavior)
+    // This ensures startOfMonth/startOfYear work correctly in the user's timezone
+    InternalDateComponents dc = timestampToComponents(timestamp, false); // false = local time
 
     switch (unit) {
         case TimeUnit::MILLISECOND:
@@ -1063,7 +1075,7 @@ double HybridNativeDate::truncateToUnit(double timestamp, TimeUnit unit) {
             dc.second = 0;
             dc.minute = 0;
             dc.hour = 0;
-            double localDayStart = componentsToTimestamp(dc);
+            double localDayStart = componentsToTimestampLocal(dc);
             // dayOfWeek is already in local time from timestampToComponents
             return localDayStart - (static_cast<double>(dc.dayOfWeek) * MS_PER_DAY);
         }
@@ -1084,7 +1096,7 @@ double HybridNativeDate::truncateToUnit(double timestamp, TimeUnit unit) {
             break;
     }
 
-    return componentsToTimestamp(dc);
+    return componentsToTimestampLocal(dc);
 }
 
 HybridNativeDate::InternalDateComponents HybridNativeDate::timestampToComponents(double timestamp, bool useUTC) {
@@ -1140,6 +1152,21 @@ double HybridNativeDate::componentsToTimestamp(const InternalDateComponents& dc)
     return static_cast<double>(time) * 1000.0 + dc.millisecond;
 }
 
+double HybridNativeDate::componentsToTimestampLocal(const InternalDateComponents& dc) {
+    std::tm tm = {};
+    tm.tm_year = dc.year - 1900;
+    tm.tm_mon = dc.month - 1;
+    tm.tm_mday = dc.day;
+    tm.tm_hour = dc.hour;
+    tm.tm_min = dc.minute;
+    tm.tm_sec = dc.second;
+    tm.tm_isdst = -1; // Let the system determine DST
+
+    std::time_t time = std::mktime(&tm);
+
+    return static_cast<double>(time) * 1000.0 + dc.millisecond;
+}
+
 double HybridNativeDate::parseISO8601(const std::string& dateString) {
     const char* s = dateString.c_str();
     const size_t len = dateString.length();
@@ -1182,42 +1209,51 @@ double HybridNativeDate::parseISO8601(const std::string& dateString) {
         }
     }
 
-    double result = componentsToTimestamp(dc);
+    // Check for timezone indicator: Z or +/- offset
+    bool hasTimezone = false;
+    int tzOffsetMs = 0;
 
-    // Handle timezone: Z or +HH:mm or -HH:mm
-    // Find timezone indicator from the end
-    if (len > 0) {
-        if (s[len - 1] == 'Z') {
-            // UTC - already correct
-        } else {
-            // Look for + or - for timezone offset
-            for (size_t i = len - 1; i > 10; i--) {
-                if (s[i] == '+' || s[i] == '-') {
-                    bool negative = (s[i] == '-');
-                    int tzHours = 0;
-                    int tzMinutes = 0;
+    if (len > 0 && s[len - 1] == 'Z') {
+        hasTimezone = true;
+        // UTC - no offset needed
+    } else if (len > 10) {
+        // Look for + or - for timezone offset
+        for (size_t i = len - 1; i > 10; i--) {
+            if (s[i] == '+' || s[i] == '-') {
+                hasTimezone = true;
+                bool negative = (s[i] == '-');
+                int tzHours = 0;
+                int tzMinutes = 0;
 
-                    // Parse timezone hours
-                    if (i + 2 < len) {
-                        tzHours = parse2Digits(s + i + 1);
-                    }
-                    // Parse timezone minutes (may have colon or not)
-                    if (i + 4 < len) {
-                        size_t minStart = (s[i + 3] == ':') ? i + 4 : i + 3;
-                        if (minStart + 1 < len) {
-                            tzMinutes = parse2Digits(s + minStart);
-                        }
-                    }
-
-                    int offsetMs = (tzHours * 60 + tzMinutes) * 60 * 1000;
-                    result += negative ? offsetMs : -offsetMs;
-                    break;
+                // Parse timezone hours
+                if (i + 2 < len) {
+                    tzHours = parse2Digits(s + i + 1);
                 }
+                // Parse timezone minutes (may have colon or not)
+                if (i + 4 < len) {
+                    size_t minStart = (s[i + 3] == ':') ? i + 4 : i + 3;
+                    if (minStart + 1 < len) {
+                        tzMinutes = parse2Digits(s + minStart);
+                    }
+                }
+
+                tzOffsetMs = (tzHours * 60 + tzMinutes) * 60 * 1000;
+                if (!negative) {
+                    tzOffsetMs = -tzOffsetMs; // Positive offset means subtract from UTC
+                }
+                break;
             }
         }
     }
 
-    return result;
+    // If no timezone indicator, interpret as LOCAL time (like date-fns)
+    // If has timezone, interpret as UTC and apply offset
+    if (hasTimezone) {
+        double result = componentsToTimestamp(dc); // UTC
+        return result + tzOffsetMs;
+    } else {
+        return componentsToTimestampLocal(dc); // Local time
+    }
 }
 
 std::string HybridNativeDate::padZero(int value, int width) {
