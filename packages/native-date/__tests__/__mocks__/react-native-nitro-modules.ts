@@ -895,6 +895,50 @@ const mockNativeDate = {
   getAvailableTimezones: () => AVAILABLE_TIMEZONES,
   isValidTimezone: (tz: string) => AVAILABLE_TIMEZONES.includes(tz),
 
+  // Timezone-aware predicates (InTz)
+  isTodayInTz: (ts: number, tz: string) => {
+    const dateStr = mockNativeDate.formatInTimezone(ts, 'yyyy-MM-dd', tz);
+    const todayStr = mockNativeDate.formatInTimezone(Date.now(), 'yyyy-MM-dd', tz);
+    return dateStr === todayStr;
+  },
+  isTomorrowInTz: (ts: number, tz: string) => {
+    const dateStr = mockNativeDate.formatInTimezone(ts, 'yyyy-MM-dd', tz);
+    const tomorrowTs = addToDate(Date.now(), 1, 'day');
+    const tomorrowStr = mockNativeDate.formatInTimezone(tomorrowTs, 'yyyy-MM-dd', tz);
+    return dateStr === tomorrowStr;
+  },
+  isYesterdayInTz: (ts: number, tz: string) => {
+    const dateStr = mockNativeDate.formatInTimezone(ts, 'yyyy-MM-dd', tz);
+    const yesterdayTs = addToDate(Date.now(), -1, 'day');
+    const yesterdayStr = mockNativeDate.formatInTimezone(yesterdayTs, 'yyyy-MM-dd', tz);
+    return dateStr === yesterdayStr;
+  },
+  isSameDayInTz: (ts1: number, ts2: number, tz: string) => {
+    return mockNativeDate.formatInTimezone(ts1, 'yyyy-MM-dd', tz) ===
+           mockNativeDate.formatInTimezone(ts2, 'yyyy-MM-dd', tz);
+  },
+  isSameMonthInTz: (ts1: number, ts2: number, tz: string) => {
+    return mockNativeDate.formatInTimezone(ts1, 'yyyy-MM', tz) ===
+           mockNativeDate.formatInTimezone(ts2, 'yyyy-MM', tz);
+  },
+  isSameYearInTz: (ts1: number, ts2: number, tz: string) => {
+    return mockNativeDate.formatInTimezone(ts1, 'yyyy', tz) ===
+           mockNativeDate.formatInTimezone(ts2, 'yyyy', tz);
+  },
+  startOfDayInTz: (ts: number, tz: string) => {
+    const dateStr = mockNativeDate.formatInTimezone(ts, 'yyyy-MM-dd', tz);
+    const utcMidnight = parseISO8601(dateStr + 'T00:00:00Z');
+    const offsetMinutes = getTimezoneOffsetForDate(tz, utcMidnight);
+    return utcMidnight - (offsetMinutes * 60 * 1000);
+  },
+  endOfDayInTz: (ts: number, tz: string) => {
+    const nextDay = addToDate(ts, 1, 'day');
+    const dateStr = mockNativeDate.formatInTimezone(nextDay, 'yyyy-MM-dd', tz);
+    const utcMidnight = parseISO8601(dateStr + 'T00:00:00Z');
+    const offsetMinutes = getTimezoneOffsetForDate(tz, utcMidnight);
+    return utcMidnight - (offsetMinutes * 60 * 1000) - 1;
+  },
+
   // Async batch operations
   parseManyAsync: async (dateStrings: string[]) => {
     return dateStrings.map((s) => {

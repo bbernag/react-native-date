@@ -125,6 +125,16 @@ export interface NativeDate
   getAvailableTimezones(): string[];
   isValidTimezone(timezone: string): boolean;
 
+  // Timezone-aware predicates (InTz)
+  isTodayInTz(timestamp: number, timezone: string): boolean;
+  isTomorrowInTz(timestamp: number, timezone: string): boolean;
+  isYesterdayInTz(timestamp: number, timezone: string): boolean;
+  isSameDayInTz(timestamp1: number, timestamp2: number, timezone: string): boolean;
+  isSameMonthInTz(timestamp1: number, timestamp2: number, timezone: string): boolean;
+  isSameYearInTz(timestamp1: number, timestamp2: number, timezone: string): boolean;
+  startOfDayInTz(timestamp: number, timezone: string): number;
+  endOfDayInTz(timestamp: number, timezone: string): number;
+
   // Locale
   getLocale(): string;
   setLocale(locale: string): boolean;

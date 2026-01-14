@@ -1317,6 +1317,74 @@ bool HybridNativeDate::isValidTimezone(const std::string& timezone) {
     return TimezoneHelper::isValidTimezone(timezone);
 }
 
+// MARK: - Timezone-aware predicates (InTz)
+
+bool HybridNativeDate::isTodayInTz(double timestamp, const std::string& timezone) {
+    // Format both dates as yyyy-MM-dd in the target timezone and compare
+    std::string dateStr = formatInTimezone(timestamp, "yyyy-MM-dd", timezone);
+    std::string todayStr = formatInTimezone(now(), "yyyy-MM-dd", timezone);
+    return dateStr == todayStr;
+}
+
+bool HybridNativeDate::isTomorrowInTz(double timestamp, const std::string& timezone) {
+    // Get tomorrow's timestamp (add 1 day to now)
+    double tomorrowTs = add(now(), 1, TimeUnit::DAY);
+    std::string dateStr = formatInTimezone(timestamp, "yyyy-MM-dd", timezone);
+    std::string tomorrowStr = formatInTimezone(tomorrowTs, "yyyy-MM-dd", timezone);
+    return dateStr == tomorrowStr;
+}
+
+bool HybridNativeDate::isYesterdayInTz(double timestamp, const std::string& timezone) {
+    // Get yesterday's timestamp (subtract 1 day from now)
+    double yesterdayTs = subtract(now(), 1, TimeUnit::DAY);
+    std::string dateStr = formatInTimezone(timestamp, "yyyy-MM-dd", timezone);
+    std::string yesterdayStr = formatInTimezone(yesterdayTs, "yyyy-MM-dd", timezone);
+    return dateStr == yesterdayStr;
+}
+
+bool HybridNativeDate::isSameDayInTz(double timestamp1, double timestamp2, const std::string& timezone) {
+    // Format both as yyyy-MM-dd in timezone and compare
+    std::string date1 = formatInTimezone(timestamp1, "yyyy-MM-dd", timezone);
+    std::string date2 = formatInTimezone(timestamp2, "yyyy-MM-dd", timezone);
+    return date1 == date2;
+}
+
+bool HybridNativeDate::isSameMonthInTz(double timestamp1, double timestamp2, const std::string& timezone) {
+    // Format both as yyyy-MM in timezone and compare
+    std::string date1 = formatInTimezone(timestamp1, "yyyy-MM", timezone);
+    std::string date2 = formatInTimezone(timestamp2, "yyyy-MM", timezone);
+    return date1 == date2;
+}
+
+bool HybridNativeDate::isSameYearInTz(double timestamp1, double timestamp2, const std::string& timezone) {
+    // Format both as yyyy in timezone and compare
+    std::string date1 = formatInTimezone(timestamp1, "yyyy", timezone);
+    std::string date2 = formatInTimezone(timestamp2, "yyyy", timezone);
+    return date1 == date2;
+}
+
+double HybridNativeDate::startOfDayInTz(double timestamp, const std::string& timezone) {
+    // Get the date string in target timezone (e.g., "2024-06-15")
+    std::string dateStr = formatInTimezone(timestamp, "yyyy-MM-dd", timezone);
+
+    // Parse as UTC midnight for that date
+    std::string utcMidnightStr = dateStr + "T00:00:00.000Z";
+    double utcMidnight = parseISO8601(utcMidnightStr);
+
+    // Get offset for target timezone at that time (in minutes)
+    double offsetMinutes = getOffsetInTimezone(utcMidnight, timezone);
+
+    // Adjust: if timezone is UTC-7 (offset=-420), midnight local = 07:00 UTC
+    // So we SUBTRACT the offset (negative offset means we ADD hours)
+    return utcMidnight - (offsetMinutes * 60 * 1000);
+}
+
+double HybridNativeDate::endOfDayInTz(double timestamp, const std::string& timezone) {
+    // End of day = start of next day - 1ms
+    double nextDay = add(timestamp, 1, TimeUnit::DAY);
+    return startOfDayInTz(nextDay, timezone) - 1;
+}
+
 // MARK: - Locale
 
 std::string HybridNativeDate::getLocale() {

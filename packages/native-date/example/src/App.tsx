@@ -10,6 +10,7 @@ import {
 import Benchmark from './Benchmark';
 import TimezoneScreen from './TimezoneScreen';
 import FormattingScreen from './FormattingScreen';
+import ComparisonScreen from './ComparisonScreen';
 import {
   // Core
   now,
@@ -80,7 +81,7 @@ import {
 // Initialize locale at module load time (before any component renders)
 setLocale('en');
 
-type Tab = 'demo' | 'formatting' | 'benchmark' | 'timezone';
+type Tab = 'demo' | 'formatting' | 'benchmark' | 'timezone' | 'compare';
 
 function TabBar({
   activeTab,
@@ -147,6 +148,19 @@ function TabBar({
           ]}
         >
           TZ
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[tabStyles.tab, activeTab === 'compare' && tabStyles.activeTab]}
+        onPress={() => onChangeTab('compare')}
+      >
+        <Text
+          style={[
+            tabStyles.tabText,
+            activeTab === 'compare' && tabStyles.activeTabText,
+          ]}
+        >
+          Cmp
         </Text>
       </TouchableOpacity>
     </View>
@@ -509,6 +523,7 @@ function App() {
       {activeTab === 'formatting' && <FormattingScreen />}
       {activeTab === 'benchmark' && <Benchmark />}
       {activeTab === 'timezone' && <TimezoneScreen />}
+      {activeTab === 'compare' && <ComparisonScreen />}
     </SafeAreaView>
   );
 }

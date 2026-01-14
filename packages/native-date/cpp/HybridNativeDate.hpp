@@ -88,6 +88,16 @@ public:
     std::vector<std::string> getAvailableTimezones() override;
     bool isValidTimezone(const std::string& timezone) override;
 
+    // Timezone-aware predicates (InTz)
+    bool isTodayInTz(double timestamp, const std::string& timezone) override;
+    bool isTomorrowInTz(double timestamp, const std::string& timezone) override;
+    bool isYesterdayInTz(double timestamp, const std::string& timezone) override;
+    bool isSameDayInTz(double timestamp1, double timestamp2, const std::string& timezone) override;
+    bool isSameMonthInTz(double timestamp1, double timestamp2, const std::string& timezone) override;
+    bool isSameYearInTz(double timestamp1, double timestamp2, const std::string& timezone) override;
+    double startOfDayInTz(double timestamp, const std::string& timezone) override;
+    double endOfDayInTz(double timestamp, const std::string& timezone) override;
+
     // Locale
     std::string getLocale() override;
     bool setLocale(const std::string& locale) override;

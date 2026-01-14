@@ -8,7 +8,6 @@ import {
   setMinutes,
   setSeconds,
   setMilliseconds,
-  format,
 } from '../src/index';
 
 describe('Setter Functions', () => {

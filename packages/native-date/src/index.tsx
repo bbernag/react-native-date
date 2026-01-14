@@ -1182,23 +1182,17 @@ export function isSameYear(date1: DateInput, date2: DateInput): boolean {
   return d1.year === d2.year;
 }
 
-// Timezone-aware predicates (InTz)
+// Timezone-aware predicates (InTz) - Native implementations
 export function isTodayInTz(date: DateInput, timezone: Timezone): boolean {
-  const dateStr = formatInTimezone(date, 'yyyy-MM-dd', timezone);
-  const todayStr = formatInTimezone(now(), 'yyyy-MM-dd', timezone);
-  return dateStr === todayStr;
+  return NativeDateModule.isTodayInTz(toTimestamp(date), timezone);
 }
 
 export function isTomorrowInTz(date: DateInput, timezone: Timezone): boolean {
-  const dateStr = formatInTimezone(date, 'yyyy-MM-dd', timezone);
-  const tomorrowStr = formatInTimezone(addDays(now(), 1), 'yyyy-MM-dd', timezone);
-  return dateStr === tomorrowStr;
+  return NativeDateModule.isTomorrowInTz(toTimestamp(date), timezone);
 }
 
 export function isYesterdayInTz(date: DateInput, timezone: Timezone): boolean {
-  const dateStr = formatInTimezone(date, 'yyyy-MM-dd', timezone);
-  const yesterdayStr = formatInTimezone(subDays(now(), 1), 'yyyy-MM-dd', timezone);
-  return dateStr === yesterdayStr;
+  return NativeDateModule.isYesterdayInTz(toTimestamp(date), timezone);
 }
 
 export function isSameDayInTz(
@@ -1206,9 +1200,10 @@ export function isSameDayInTz(
   date2: DateInput,
   timezone: Timezone
 ): boolean {
-  return (
-    formatInTimezone(date1, 'yyyy-MM-dd', timezone) ===
-    formatInTimezone(date2, 'yyyy-MM-dd', timezone)
+  return NativeDateModule.isSameDayInTz(
+    toTimestamp(date1),
+    toTimestamp(date2),
+    timezone
   );
 }
 
@@ -1217,9 +1212,10 @@ export function isSameMonthInTz(
   date2: DateInput,
   timezone: Timezone
 ): boolean {
-  return (
-    formatInTimezone(date1, 'yyyy-MM', timezone) ===
-    formatInTimezone(date2, 'yyyy-MM', timezone)
+  return NativeDateModule.isSameMonthInTz(
+    toTimestamp(date1),
+    toTimestamp(date2),
+    timezone
   );
 }
 
@@ -1228,31 +1224,19 @@ export function isSameYearInTz(
   date2: DateInput,
   timezone: Timezone
 ): boolean {
-  return (
-    formatInTimezone(date1, 'yyyy', timezone) ===
-    formatInTimezone(date2, 'yyyy', timezone)
+  return NativeDateModule.isSameYearInTz(
+    toTimestamp(date1),
+    toTimestamp(date2),
+    timezone
   );
 }
 
 export function startOfDayInTz(date: DateInput, timezone: Timezone): number {
-  // Get the date string in target timezone (e.g., "2024-06-15")
-  const dateStr = formatInTimezone(date, 'yyyy-MM-dd', timezone);
-
-  // Parse as UTC midnight for that date
-  const utcMidnight = parse(dateStr + 'T00:00:00Z');
-
-  // Get offset for target timezone at that time (in minutes)
-  const offsetMinutes = getOffsetInTimezone(utcMidnight, timezone);
-
-  // Adjust: if timezone is UTC-7 (offset=-420), midnight local = 07:00 UTC
-  // So we SUBTRACT the offset (negative offset means we ADD hours)
-  return utcMidnight - offsetMinutes * 60 * 1000;
+  return NativeDateModule.startOfDayInTz(toTimestamp(date), timezone);
 }
 
 export function endOfDayInTz(date: DateInput, timezone: Timezone): number {
-  // End of day = 23:59:59.999 = start of next day - 1ms
-  const nextDay = addDays(date, 1);
-  return startOfDayInTz(nextDay, timezone) - 1;
+  return NativeDateModule.endOfDayInTz(toTimestamp(date), timezone);
 }
 
 // Week helpers
