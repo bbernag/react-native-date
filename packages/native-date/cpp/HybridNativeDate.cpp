@@ -1033,12 +1033,7 @@ int64_t HybridNativeDate::getMillisForUnit(TimeUnit unit) {
 }
 
 double HybridNativeDate::truncateToUnit(double timestamp, TimeUnit unit) {
-    // Fast path for DAY (UTC) - avoids component conversion
-    if (unit == TimeUnit::DAY) {
-        int64_t ms = static_cast<int64_t>(timestamp);
-        return static_cast<double>(floorDayStartMs(ms));
-    }
-
+    // Use local time components for all units (consistent behavior)
     InternalDateComponents dc = timestampToComponents(timestamp);
 
     switch (unit) {
@@ -1057,12 +1052,20 @@ double HybridNativeDate::truncateToUnit(double timestamp, TimeUnit unit) {
             dc.minute = 0;
             break;
         case TimeUnit::DAY:
-            // Handled above
+            dc.millisecond = 0;
+            dc.second = 0;
+            dc.minute = 0;
+            dc.hour = 0;
             break;
         case TimeUnit::WEEK: {
-            int64_t dayStart = floorDayStartMs(static_cast<int64_t>(timestamp));
-            int dayOfWeek = getDayOfWeek(static_cast<double>(dayStart)); // 0 = Sunday
-            return static_cast<double>(dayStart - (static_cast<int64_t>(dayOfWeek) * MS_PER_DAY));
+            // Get start of day in local time, then subtract to Sunday
+            dc.millisecond = 0;
+            dc.second = 0;
+            dc.minute = 0;
+            dc.hour = 0;
+            double localDayStart = componentsToTimestamp(dc);
+            // dayOfWeek is already in local time from timestampToComponents
+            return localDayStart - (static_cast<double>(dc.dayOfWeek) * MS_PER_DAY);
         }
         case TimeUnit::MONTH:
             dc.millisecond = 0;
@@ -1269,6 +1272,17 @@ double HybridNativeDate::getTimezoneOffsetForTimestamp(double timestamp) {
     std::string systemTz = TimezoneHelper::getSystemTimezone();
     int64_t timestampMs = static_cast<int64_t>(timestamp);
     return static_cast<double>(TimezoneHelper::getOffsetForTimestamp(systemTz, timestampMs));
+}
+
+double HybridNativeDate::getOffsetInTimezone(double timestamp, const std::string& timezone) {
+    // Get the offset for a specific timezone at a specific timestamp
+    // Returns offset in minutes (positive = east of UTC, negative = west)
+    if (timezone == "UTC") {
+        return 0;
+    }
+    std::string normalizedTz = TimezoneHelper::normalizeTimezone(timezone);
+    int64_t timestampMs = static_cast<int64_t>(timestamp);
+    return static_cast<double>(TimezoneHelper::getOffsetForTimestamp(normalizedTz, timestampMs));
 }
 
 double HybridNativeDate::toTimezone(double timestamp, const std::string& timezone) {

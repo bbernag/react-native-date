@@ -82,6 +82,7 @@ public:
     std::string getTimezone() override;
     double getTimezoneOffset() override;
     double getTimezoneOffsetForTimestamp(double timestamp) override;
+    double getOffsetInTimezone(double timestamp, const std::string& timezone) override;
     double toTimezone(double timestamp, const std::string& timezone) override;
     std::string formatInTimezone(double timestamp, const std::string& pattern, const std::string& timezone) override;
     std::vector<std::string> getAvailableTimezones() override;

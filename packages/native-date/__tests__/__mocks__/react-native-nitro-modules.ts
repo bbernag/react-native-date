@@ -23,6 +23,7 @@ type TimeUnit =
   | 'millisecond';
 
 // Timezone offsets in minutes (simplified for testing)
+// Note: These don't account for DST - real implementation uses platform APIs
 const TIMEZONE_OFFSETS: Record<string, number> = {
   'UTC': 0,
   'America/New_York': -300, // EST (not accounting for DST)
@@ -32,6 +33,29 @@ const TIMEZONE_OFFSETS: Record<string, number> = {
   'Asia/Tokyo': 540,
   'Australia/Sydney': 660,
 };
+
+// DST-aware offsets (simplified - June vs January)
+function getTimezoneOffsetForDate(tz: string, timestamp: number): number {
+  const date = new Date(timestamp);
+  const month = date.getUTCMonth();
+  const isDST = month >= 3 && month <= 10; // April-October (Northern Hemisphere)
+
+  // Simplified DST handling for common timezones
+  if (tz === 'America/New_York') {
+    return isDST ? -240 : -300; // EDT vs EST
+  }
+  if (tz === 'America/Los_Angeles') {
+    return isDST ? -420 : -480; // PDT vs PST
+  }
+  if (tz === 'Europe/London') {
+    return isDST ? 60 : 0; // BST vs GMT
+  }
+  if (tz === 'Europe/Paris') {
+    return isDST ? 120 : 60; // CEST vs CET
+  }
+
+  return TIMEZONE_OFFSETS[tz] ?? 0;
+}
 
 const AVAILABLE_TIMEZONES = Object.keys(TIMEZONE_OFFSETS);
 
@@ -860,9 +884,14 @@ const mockNativeDate = {
   getTimezone: () => 'America/New_York',
   getTimezoneOffset: () => new Date().getTimezoneOffset(),
   getTimezoneOffsetForTimestamp: () => new Date().getTimezoneOffset(),
+  getOffsetInTimezone: (ts: number, tz: string) => getTimezoneOffsetForDate(tz, ts),
   toTimezone: (ts: number, _tz: string) => ts, // Simplified
-  formatInTimezone: (ts: number, pattern: string, _tz: string) =>
-    formatDate(ts, pattern),
+  formatInTimezone: (ts: number, pattern: string, tz: string) => {
+    // Apply timezone offset for proper formatting
+    const offset = getTimezoneOffsetForDate(tz, ts);
+    const adjustedTs = ts + offset * 60 * 1000;
+    return formatDate(adjustedTs, pattern, true); // Use UTC after adjustment
+  },
   getAvailableTimezones: () => AVAILABLE_TIMEZONES,
   isValidTimezone: (tz: string) => AVAILABLE_TIMEZONES.includes(tz),
 

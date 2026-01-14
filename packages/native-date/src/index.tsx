@@ -754,6 +754,10 @@ export function getTimezoneOffsetForTimestamp(date: DateInput): number {
   return NativeDateModule.getTimezoneOffsetForTimestamp(toTimestamp(date));
 }
 
+export function getOffsetInTimezone(date: DateInput, timezone: Timezone): number {
+  return NativeDateModule.getOffsetInTimezone(toTimestamp(date), timezone);
+}
+
 export function toTimezone(date: DateInput, timezone: Timezone): number {
   return NativeDateModule.toTimezone(toTimestamp(date), timezone);
 }
@@ -1097,7 +1101,7 @@ export function diffInYears(date1: DateInput, date2: DateInput): number {
 
 // ISO format helper
 export function toISOString(date: DateInput): string {
-  return format(date, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+  return formatUTC(date, "yyyy-MM-dd'T'HH:mm:ss.SSS") + 'Z';
 }
 
 export function formatDate(date: DateInput): string {
@@ -1132,16 +1136,23 @@ export function formatInUTC(date: DateInput, pattern: string): string {
 }
 
 // Additional date-fns-like predicates
+// These use getComponents() for fast local time comparison (native C++ call)
 export function isToday(date: DateInput): boolean {
-  return isSame(date, now(), 'day');
+  const d = getComponents(date);
+  const n = getComponents(now());
+  return d.year === n.year && d.month === n.month && d.day === n.day;
 }
 
 export function isTomorrow(date: DateInput): boolean {
-  return isSame(date, addDays(now(), 1), 'day');
+  const d = getComponents(date);
+  const tomorrow = getComponents(addDays(now(), 1));
+  return d.year === tomorrow.year && d.month === tomorrow.month && d.day === tomorrow.day;
 }
 
 export function isYesterday(date: DateInput): boolean {
-  return isSame(date, subDays(now(), 1), 'day');
+  const d = getComponents(date);
+  const yesterday = getComponents(subDays(now(), 1));
+  return d.year === yesterday.year && d.month === yesterday.month && d.day === yesterday.day;
 }
 
 export function isPast(date: DateInput): boolean {
@@ -1152,16 +1163,96 @@ export function isFuture(date: DateInput): boolean {
   return isAfter(date, now());
 }
 
+// These use getComponents() for fast local time comparison (native C++ call)
 export function isSameDay(date1: DateInput, date2: DateInput): boolean {
-  return isSame(date1, date2, 'day');
+  const d1 = getComponents(date1);
+  const d2 = getComponents(date2);
+  return d1.year === d2.year && d1.month === d2.month && d1.day === d2.day;
 }
 
 export function isSameMonth(date1: DateInput, date2: DateInput): boolean {
-  return isSame(date1, date2, 'month');
+  const d1 = getComponents(date1);
+  const d2 = getComponents(date2);
+  return d1.year === d2.year && d1.month === d2.month;
 }
 
 export function isSameYear(date1: DateInput, date2: DateInput): boolean {
-  return isSame(date1, date2, 'year');
+  const d1 = getComponents(date1);
+  const d2 = getComponents(date2);
+  return d1.year === d2.year;
+}
+
+// Timezone-aware predicates (InTz)
+export function isTodayInTz(date: DateInput, timezone: Timezone): boolean {
+  const dateStr = formatInTimezone(date, 'yyyy-MM-dd', timezone);
+  const todayStr = formatInTimezone(now(), 'yyyy-MM-dd', timezone);
+  return dateStr === todayStr;
+}
+
+export function isTomorrowInTz(date: DateInput, timezone: Timezone): boolean {
+  const dateStr = formatInTimezone(date, 'yyyy-MM-dd', timezone);
+  const tomorrowStr = formatInTimezone(addDays(now(), 1), 'yyyy-MM-dd', timezone);
+  return dateStr === tomorrowStr;
+}
+
+export function isYesterdayInTz(date: DateInput, timezone: Timezone): boolean {
+  const dateStr = formatInTimezone(date, 'yyyy-MM-dd', timezone);
+  const yesterdayStr = formatInTimezone(subDays(now(), 1), 'yyyy-MM-dd', timezone);
+  return dateStr === yesterdayStr;
+}
+
+export function isSameDayInTz(
+  date1: DateInput,
+  date2: DateInput,
+  timezone: Timezone
+): boolean {
+  return (
+    formatInTimezone(date1, 'yyyy-MM-dd', timezone) ===
+    formatInTimezone(date2, 'yyyy-MM-dd', timezone)
+  );
+}
+
+export function isSameMonthInTz(
+  date1: DateInput,
+  date2: DateInput,
+  timezone: Timezone
+): boolean {
+  return (
+    formatInTimezone(date1, 'yyyy-MM', timezone) ===
+    formatInTimezone(date2, 'yyyy-MM', timezone)
+  );
+}
+
+export function isSameYearInTz(
+  date1: DateInput,
+  date2: DateInput,
+  timezone: Timezone
+): boolean {
+  return (
+    formatInTimezone(date1, 'yyyy', timezone) ===
+    formatInTimezone(date2, 'yyyy', timezone)
+  );
+}
+
+export function startOfDayInTz(date: DateInput, timezone: Timezone): number {
+  // Get the date string in target timezone (e.g., "2024-06-15")
+  const dateStr = formatInTimezone(date, 'yyyy-MM-dd', timezone);
+
+  // Parse as UTC midnight for that date
+  const utcMidnight = parse(dateStr + 'T00:00:00Z');
+
+  // Get offset for target timezone at that time (in minutes)
+  const offsetMinutes = getOffsetInTimezone(utcMidnight, timezone);
+
+  // Adjust: if timezone is UTC-7 (offset=-420), midnight local = 07:00 UTC
+  // So we SUBTRACT the offset (negative offset means we ADD hours)
+  return utcMidnight - offsetMinutes * 60 * 1000;
+}
+
+export function endOfDayInTz(date: DateInput, timezone: Timezone): number {
+  // End of day = 23:59:59.999 = start of next day - 1ms
+  const nextDay = addDays(date, 1);
+  return startOfDayInTz(nextDay, timezone) - 1;
 }
 
 // Week helpers
@@ -1220,6 +1311,77 @@ export function diffInMinutes(date1: DateInput, date2: DateInput): number {
 
 export function diffInSeconds(date1: DateInput, date2: DateInput): number {
   return diff(date1, date2, 'second');
+}
+
+// Helper: create timestamp from local time components (unlike fromComponents which uses UTC)
+function fromComponentsLocal(components: {
+  year: number;
+  month: number;
+  day: number;
+  hour?: number;
+  minute?: number;
+  second?: number;
+  millisecond?: number;
+}): number {
+  const {
+    year,
+    month,
+    day,
+    hour = 0,
+    minute = 0,
+    second = 0,
+    millisecond = 0,
+  } = components;
+  // Use new Date() constructor which interprets as local time (month is 0-indexed)
+  return new Date(year, month - 1, day, hour, minute, second, millisecond).getTime();
+}
+
+// Setters (immutable - return new timestamp)
+// These use local time: getComponents returns local, setters preserve local time
+export function setYear(date: DateInput, year: number): number {
+  const c = getComponents(date);
+  // Handle Feb 29 -> non-leap year
+  let day = c.day;
+  if (c.month === 2 && c.day === 29) {
+    const targetYear = fromComponentsLocal({ ...c, year, day: 1 });
+    if (!isLeapYear(targetYear)) {
+      day = 28;
+    }
+  }
+  return fromComponentsLocal({ ...c, year, day });
+}
+
+export function setMonth(date: DateInput, month: number): number {
+  const c = getComponents(date);
+  const tempDate = fromComponentsLocal({ ...c, month, day: 1 });
+  const maxDay = getDaysInMonth(tempDate);
+  const day = Math.min(c.day, maxDay);
+  return fromComponentsLocal({ ...c, month, day });
+}
+
+export function setDate(date: DateInput, day: number): number {
+  const c = getComponents(date);
+  return fromComponentsLocal({ ...c, day });
+}
+
+export function setHours(date: DateInput, hours: number): number {
+  const c = getComponents(date);
+  return fromComponentsLocal({ ...c, hour: hours });
+}
+
+export function setMinutes(date: DateInput, minutes: number): number {
+  const c = getComponents(date);
+  return fromComponentsLocal({ ...c, minute: minutes });
+}
+
+export function setSeconds(date: DateInput, seconds: number): number {
+  const c = getComponents(date);
+  return fromComponentsLocal({ ...c, second: seconds });
+}
+
+export function setMilliseconds(date: DateInput, milliseconds: number): number {
+  const c = getComponents(date);
+  return fromComponentsLocal({ ...c, millisecond: milliseconds });
 }
 
 // =============================================================================

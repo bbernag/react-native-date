@@ -54,10 +54,14 @@ import {
   isSameDay,
   isSameMonth,
   isSameYear,
+  isToday,
+  isTomorrow,
+  isYesterday,
   clamp,
   min,
   max,
   toISOString,
+  now,
 } from '../src/index';
 
 import {
@@ -106,9 +110,15 @@ import {
   isSameMonth as dfIsSameMonth,
   isSameYear as dfIsSameYear,
   isWeekend as dfIsWeekend,
+  isToday as dfIsToday,
+  isTomorrow as dfIsTomorrow,
+  isYesterday as dfIsYesterday,
 } from 'date-fns';
 
 import dayjs from 'dayjs';
+import isTodayPlugin from 'dayjs/plugin/isToday';
+
+dayjs.extend(isTodayPlugin);
 
 describe('Library Comparison Tests', () => {
   // Test dates covering various edge cases
@@ -1229,6 +1239,203 @@ describe('Library Comparison Tests', () => {
           expect(endOfMonth(ts)).toBe(dfEndOfMonth(dfDate).getTime());
         });
       });
+    });
+  });
+
+  // ============================================================
+  // DATE PREDICATES - LOCAL TIME COMPARISON
+  // ============================================================
+  describe('Date Predicates - Local Time Comparison', () => {
+    describe('isToday vs date-fns', () => {
+      it('should match date-fns for current timestamp', () => {
+        const current = now();
+        expect(isToday(current)).toBe(dfIsToday(new Date(current)));
+      });
+
+      it('should match date-fns for yesterday', () => {
+        const yesterday = subDays(now(), 1);
+        expect(isToday(yesterday)).toBe(dfIsToday(new Date(yesterday)));
+      });
+
+      it('should match date-fns for tomorrow', () => {
+        const tomorrow = addDays(now(), 1);
+        expect(isToday(tomorrow)).toBe(dfIsToday(new Date(tomorrow)));
+      });
+    });
+
+    describe('isTomorrow vs date-fns', () => {
+      it('should match date-fns for tomorrow', () => {
+        const tomorrow = addDays(now(), 1);
+        expect(isTomorrow(tomorrow)).toBe(dfIsTomorrow(new Date(tomorrow)));
+      });
+
+      it('should match date-fns for today', () => {
+        const current = now();
+        expect(isTomorrow(current)).toBe(dfIsTomorrow(new Date(current)));
+      });
+
+      it('should match date-fns for day after tomorrow', () => {
+        const dayAfter = addDays(now(), 2);
+        expect(isTomorrow(dayAfter)).toBe(dfIsTomorrow(new Date(dayAfter)));
+      });
+    });
+
+    describe('isYesterday vs date-fns', () => {
+      it('should match date-fns for yesterday', () => {
+        const yesterday = subDays(now(), 1);
+        expect(isYesterday(yesterday)).toBe(dfIsYesterday(new Date(yesterday)));
+      });
+
+      it('should match date-fns for today', () => {
+        const current = now();
+        expect(isYesterday(current)).toBe(dfIsYesterday(new Date(current)));
+      });
+
+      it('should match date-fns for day before yesterday', () => {
+        const dayBefore = subDays(now(), 2);
+        expect(isYesterday(dayBefore)).toBe(dfIsYesterday(new Date(dayBefore)));
+      });
+    });
+
+    describe('isSameDay vs date-fns with different times', () => {
+      it('should match date-fns for same day different hours', () => {
+        const morning = parse('2024-06-15T06:00:00');
+        const evening = parse('2024-06-15T22:00:00');
+        expect(isSameDay(morning, evening)).toBe(
+          dfIsSameDay(new Date(morning), new Date(evening))
+        );
+      });
+
+      it('should match date-fns for different days', () => {
+        const day1 = parse('2024-06-15T23:59:59');
+        const day2 = parse('2024-06-16T00:00:01');
+        expect(isSameDay(day1, day2)).toBe(
+          dfIsSameDay(new Date(day1), new Date(day2))
+        );
+      });
+    });
+
+    describe('isSameMonth vs date-fns', () => {
+      it('should match date-fns for same month different days', () => {
+        const early = parse('2024-06-01T12:00:00');
+        const late = parse('2024-06-30T12:00:00');
+        expect(isSameMonth(early, late)).toBe(
+          dfIsSameMonth(new Date(early), new Date(late))
+        );
+      });
+
+      it('should match date-fns for different months', () => {
+        const june = parse('2024-06-30T23:59:59');
+        const july = parse('2024-07-01T00:00:01');
+        expect(isSameMonth(june, july)).toBe(
+          dfIsSameMonth(new Date(june), new Date(july))
+        );
+      });
+    });
+
+    describe('isSameYear vs date-fns', () => {
+      it('should match date-fns for same year different months', () => {
+        const jan = parse('2024-01-01T12:00:00');
+        const dec = parse('2024-12-31T12:00:00');
+        expect(isSameYear(jan, dec)).toBe(
+          dfIsSameYear(new Date(jan), new Date(dec))
+        );
+      });
+
+      it('should match date-fns for different years', () => {
+        const dec = parse('2024-12-31T23:59:59');
+        const jan = parse('2025-01-01T00:00:01');
+        expect(isSameYear(dec, jan)).toBe(
+          dfIsSameYear(new Date(dec), new Date(jan))
+        );
+      });
+    });
+  });
+
+  // ============================================================
+  // DATE PREDICATES VS DAYJS
+  // ============================================================
+  describe('Date Predicates vs dayjs', () => {
+    describe('isToday vs dayjs', () => {
+      it('should match dayjs for current timestamp', () => {
+        const current = now();
+        expect(isToday(current)).toBe(dayjs(current).isToday());
+      });
+    });
+
+    describe('isSameDay vs dayjs', () => {
+      it('should match dayjs for same day', () => {
+        const morning = parse('2024-06-15T08:00:00');
+        const evening = parse('2024-06-15T20:00:00');
+        expect(isSameDay(morning, evening)).toBe(
+          dayjs(morning).isSame(dayjs(evening), 'day')
+        );
+      });
+
+      it('should match dayjs for different days', () => {
+        const day1 = parse('2024-06-15T12:00:00');
+        const day2 = parse('2024-06-16T12:00:00');
+        expect(isSameDay(day1, day2)).toBe(
+          dayjs(day1).isSame(dayjs(day2), 'day')
+        );
+      });
+    });
+
+    describe('isSameMonth vs dayjs', () => {
+      it('should match dayjs', () => {
+        const early = parse('2024-06-01T12:00:00');
+        const late = parse('2024-06-30T12:00:00');
+        expect(isSameMonth(early, late)).toBe(
+          dayjs(early).isSame(dayjs(late), 'month')
+        );
+      });
+    });
+
+    describe('isSameYear vs dayjs', () => {
+      it('should match dayjs', () => {
+        const jan = parse('2024-01-15T12:00:00');
+        const dec = parse('2024-12-15T12:00:00');
+        expect(isSameYear(jan, dec)).toBe(
+          dayjs(jan).isSame(dayjs(dec), 'year')
+        );
+      });
+    });
+  });
+
+  // ============================================================
+  // toISOString COMPARISON
+  // ============================================================
+  describe('toISOString vs Native Date', () => {
+    const testTimestamps = [
+      Date.UTC(2024, 0, 14, 0, 0, 0, 0), // Jan 14, 2024 00:00:00 UTC
+      Date.UTC(2024, 5, 15, 14, 30, 45, 123), // Jun 15, 2024 14:30:45.123 UTC
+      Date.UTC(2024, 11, 31, 23, 59, 59, 999), // Dec 31, 2024 23:59:59.999 UTC
+      0, // Unix epoch
+      -86400000, // One day before epoch
+    ];
+
+    testTimestamps.forEach((ts) => {
+      it(`toISOString(${ts}) should match native Date.toISOString()`, () => {
+        const nativeResult = toISOString(ts);
+        const jsResult = new Date(ts).toISOString();
+        expect(nativeResult).toBe(jsResult);
+      });
+    });
+
+    it('should produce UTC time, not local time', () => {
+      // Create a UTC timestamp
+      const utcTimestamp = Date.UTC(2024, 0, 14, 12, 0, 0, 0);
+      const result = toISOString(utcTimestamp);
+
+      // Result should always be UTC
+      expect(result).toBe('2024-01-14T12:00:00.000Z');
+    });
+
+    it('should be parseable back to the same timestamp', () => {
+      const original = Date.UTC(2024, 5, 15, 14, 30, 45, 123);
+      const isoString = toISOString(original);
+      const reparsed = parse(isoString);
+      expect(reparsed).toBe(original);
     });
   });
 });

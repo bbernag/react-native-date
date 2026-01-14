@@ -115,6 +115,7 @@ export interface NativeDate
   getTimezone(): string;
   getTimezoneOffset(): number;
   getTimezoneOffsetForTimestamp(timestamp: number): number;
+  getOffsetInTimezone(timestamp: number, timezone: string): number;
   toTimezone(timestamp: number, timezone: string): number;
   formatInTimezone(
     timestamp: number,
