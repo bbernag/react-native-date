@@ -12474,6 +12474,7 @@ __metadata:
     jest: "npm:^30.2.0"
     ts-jest: "npm:^29.4.5"
     turbo: "npm:^2.0.0"
+    typescript: "npm:^5.9.2"
     vitepress: "npm:^1.6.4"
     vue: "npm:^3.5.25"
   languageName: unknown
