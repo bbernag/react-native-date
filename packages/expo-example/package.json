@@ -11,6 +11,10 @@
   },
   "dependencies": {
     "@bernagl/react-native-date": "*",
+    "@date-fns/tz": "^1.4.1",
+    "@rn-packages/native-date-examples": "*",
+    "date-fns": "^4.1.0",
+    "dayjs": "^1.11.19",
     "expo": "~54.0.31",
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",

@@ -2,8 +2,7 @@
   "name": "react-native-packages",
   "private": true,
   "workspaces": [
-    "packages/*",
-    "packages/*/example"
+    "packages/*"
   ],
   "scripts": {
     "native-date": "yarn workspace @rn-packages/native-date",

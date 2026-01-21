@@ -122,12 +122,25 @@ temp/
 # Nitro generated (keep in git but ignore local changes)
 # nitrogen/generated/
 
-# Example app specific
-packages/native-date/example/ios/Pods/
-packages/native-date/example/ios/build/
-packages/native-date/example/android/.gradle/
-packages/native-date/example/android/build/
-packages/native-date/example/android/app/build/
+# Example apps (packages/example, packages/expo-example)
+**/ios/Pods/
+**/ios/build/
+**/android/.gradle/
+**/android/build/
+**/android/app/build/
+**/android/local.properties
+**/.expo/
+**/vendor/
+**/.bundle/
 
+# Expo generated
+.expo/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
 
 .vscode/

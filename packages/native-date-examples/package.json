@@ -1,0 +1,27 @@
+{
+  "name": "@rn-packages/native-date-examples",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Shared example screens for react-native-date testing",
+  "main": "src/index.ts",
+  "peerDependencies": {
+    "@bernagl/react-native-date": "*",
+    "react": "*",
+    "react-native": "*"
+  },
+  "peerDependenciesMeta": {
+    "@date-fns/tz": {
+      "optional": true
+    },
+    "date-fns": {
+      "optional": true
+    },
+    "dayjs": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "typescript": "^5.0.0"
+  }
+}

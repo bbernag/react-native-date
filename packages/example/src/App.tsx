@@ -10,8 +10,7 @@ import {
 import Benchmark from './Benchmark';
 import TimezoneScreen from './TimezoneScreen';
 import FormattingScreen from './FormattingScreen';
-import ComparisonScreen from './ComparisonScreen';
-import { NativeTestScreen } from './NativeTestScreen';
+import { ComparisonScreen, NativeTestScreen } from '@rn-packages/native-date-examples';
 import {
   // Core
   now,

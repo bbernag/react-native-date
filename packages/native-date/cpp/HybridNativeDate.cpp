@@ -1463,7 +1463,7 @@ std::shared_ptr<Promise<std::vector<std::string>>> HybridNativeDate::formatManyA
         results.reserve(timestamps.size());
 
         for (double timestamp : timestamps) {
-            InternalDateComponents dc = timestampToComponents(timestamp);
+            InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
 
             std::string result = pattern;
 
@@ -1498,8 +1498,7 @@ std::shared_ptr<Promise<std::vector<DateComponents>>> HybridNativeDate::getCompo
         results.reserve(timestamps.size());
 
         for (double timestamp : timestamps) {
-            InternalDateComponents dc = timestampToComponents(timestamp);
-            int dayOfWeek = getDayOfWeek(timestamp);
+            InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
 
             results.push_back(DateComponents(
                 static_cast<double>(dc.year),
@@ -1509,7 +1508,7 @@ std::shared_ptr<Promise<std::vector<DateComponents>>> HybridNativeDate::getCompo
                 static_cast<double>(dc.minute),
                 static_cast<double>(dc.second),
                 static_cast<double>(dc.millisecond),
-                static_cast<double>(dayOfWeek)
+                static_cast<double>(dc.dayOfWeek)
             ));
         }
 
