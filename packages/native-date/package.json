@@ -92,6 +92,7 @@
     "@react-native/eslint-config": "^0.81.1",
     "@react-native/eslint-plugin": "^0.83.1",
     "@types/babel__core": "^7",
+    "@types/jest": "^30.0.0",
     "@types/react": "^19.1.0",
     "@typescript-eslint/eslint-plugin": "^8.53.1",
     "@typescript-eslint/parser": "^8.53.1",

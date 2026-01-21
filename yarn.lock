@@ -1791,6 +1791,7 @@ __metadata:
     "@react-native/eslint-config": "npm:^0.81.1"
     "@react-native/eslint-plugin": "npm:^0.83.1"
     "@types/babel__core": "npm:^7"
+    "@types/jest": "npm:^30.0.0"
     "@types/react": "npm:^19.1.0"
     "@typescript-eslint/eslint-plugin": "npm:^8.53.1"
     "@typescript-eslint/parser": "npm:^8.53.1"
