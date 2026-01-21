@@ -1792,6 +1792,7 @@ __metadata:
     del-cli: "npm:^6.0.0"
     eslint: "npm:^9.35.0"
     eslint-config-prettier: "npm:^10.1.8"
+    eslint-plugin-eslint-comments: "npm:^3.2.0"
     eslint-plugin-prettier: "npm:^5.5.4"
     lefthook: "npm:^2.0.3"
     nitrogen: "npm:^0.31.10"
