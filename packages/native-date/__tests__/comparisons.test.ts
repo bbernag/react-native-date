@@ -6,6 +6,10 @@ import {
   isSameDay,
   isSameMonth,
   isSameYear,
+  isToday,
+  isTomorrow,
+  isYesterday,
+  toISOString,
   diff,
   diffInDays,
   diffInMonths,
@@ -17,6 +21,10 @@ import {
   clamp,
   min,
   max,
+  now,
+  addDays,
+  subDays,
+  format,
 } from '../src/index';
 
 describe('Date Comparisons', () => {
@@ -218,6 +226,136 @@ describe('Utility Functions', () => {
     it('should handle single element array', () => {
       const dates = [parse('2024-06-15')];
       expect(max(dates)).toBe(dates[0]);
+    });
+  });
+});
+
+describe('Local Time Predicates (date-fns compatible)', () => {
+  describe('toISOString()', () => {
+    it('should produce valid ISO 8601 string in UTC', () => {
+      // Jan 14, 2024 00:00:00 UTC
+      const utcTimestamp = Date.UTC(2024, 0, 14, 0, 0, 0, 0);
+      const result = toISOString(utcTimestamp);
+      // Should output UTC time with Z suffix
+      expect(result).toBe('2024-01-14T00:00:00.000Z');
+    });
+
+    it('should match native Date.toISOString() behavior', () => {
+      const testDate = new Date('2024-06-15T14:30:45.123Z');
+      const result = toISOString(testDate.getTime());
+      expect(result).toBe(testDate.toISOString());
+    });
+
+    it('should format UTC regardless of input timezone context', () => {
+      // This timestamp represents a specific moment in time
+      const timestamp = parse('2024-12-25T10:30:45Z');
+      const result = toISOString(timestamp);
+      expect(result).toBe('2024-12-25T10:30:45.000Z');
+    });
+  });
+
+  describe('isToday() - local time comparison', () => {
+    it('should return true for current timestamp', () => {
+      expect(isToday(now())).toBe(true);
+    });
+
+    it('should return false for yesterday', () => {
+      const yesterday = subDays(now(), 1);
+      expect(isToday(yesterday)).toBe(false);
+    });
+
+    it('should return false for tomorrow', () => {
+      const tomorrow = addDays(now(), 1);
+      expect(isToday(tomorrow)).toBe(false);
+    });
+
+    it('should use local time for comparison', () => {
+      // Create a date string for today in local time
+      const todayStr = format(now(), 'yyyy-MM-dd');
+      // Parse it back - should be considered today
+      const todayParsed = parse(todayStr + 'T12:00:00');
+      expect(isToday(todayParsed)).toBe(true);
+    });
+  });
+
+  describe('isTomorrow() - local time comparison', () => {
+    it('should return true for tomorrow', () => {
+      const tomorrow = addDays(now(), 1);
+      expect(isTomorrow(tomorrow)).toBe(true);
+    });
+
+    it('should return false for today', () => {
+      expect(isTomorrow(now())).toBe(false);
+    });
+
+    it('should return false for day after tomorrow', () => {
+      const dayAfter = addDays(now(), 2);
+      expect(isTomorrow(dayAfter)).toBe(false);
+    });
+  });
+
+  describe('isYesterday() - local time comparison', () => {
+    it('should return true for yesterday', () => {
+      const yesterday = subDays(now(), 1);
+      expect(isYesterday(yesterday)).toBe(true);
+    });
+
+    it('should return false for today', () => {
+      expect(isYesterday(now())).toBe(false);
+    });
+
+    it('should return false for day before yesterday', () => {
+      const dayBefore = subDays(now(), 2);
+      expect(isYesterday(dayBefore)).toBe(false);
+    });
+  });
+
+  describe('isSameDay() - local time comparison', () => {
+    it('should compare days in local time', () => {
+      // Two times on the same local day
+      const morning = parse('2024-06-15T08:00:00');
+      const evening = parse('2024-06-15T20:00:00');
+      expect(isSameDay(morning, evening)).toBe(true);
+    });
+
+    it('should return false for different local days', () => {
+      const day1 = parse('2024-06-15T12:00:00');
+      const day2 = parse('2024-06-16T12:00:00');
+      expect(isSameDay(day1, day2)).toBe(false);
+    });
+
+    it('should handle dates across months', () => {
+      const lastDay = parse('2024-06-30T23:00:00');
+      const firstDay = parse('2024-07-01T01:00:00');
+      expect(isSameDay(lastDay, firstDay)).toBe(false);
+    });
+  });
+
+  describe('isSameMonth() - local time comparison', () => {
+    it('should compare months in local time', () => {
+      const early = parse('2024-06-01T12:00:00');
+      const late = parse('2024-06-30T12:00:00');
+      expect(isSameMonth(early, late)).toBe(true);
+    });
+
+    it('should return false for different months', () => {
+      const june = parse('2024-06-15T12:00:00');
+      const july = parse('2024-07-15T12:00:00');
+      expect(isSameMonth(june, july)).toBe(false);
+    });
+  });
+
+  describe('isSameYear() - local time comparison', () => {
+    it('should compare years in local time', () => {
+      const jan = parse('2024-01-15T12:00:00');
+      const dec = parse('2024-12-15T12:00:00');
+      expect(isSameYear(jan, dec)).toBe(true);
+    });
+
+    it('should return false for different years', () => {
+      const y2024 = parse('2024-06-15T12:00:00');
+      const y2025 = parse('2025-06-15T12:00:00');
+      expect(isSameYear(y2024, y2025)).toBe(false);
     });
   });
 });

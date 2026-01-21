@@ -6,6 +6,13 @@ All functions accept flexible date inputs and return timestamps (milliseconds si
 type DateInput = number | string | Date;
 ```
 
+::: warning v2.0 Breaking Changes
+- `parse()` now uses **local time** for date-only strings (was UTC)
+- Getter functions now return **local time** components (was UTC)
+
+See [Release Notes](/RELEASE_NOTES_v2.0.0.md) for migration guide.
+:::
+
 ## Parsing
 
 | Function | Description |
@@ -122,6 +129,32 @@ getComponents(date); // { year: 2025, month: 11, day: 30, ... }
 
 ---
 
+## Setters
+
+Immutable setters that return new timestamps:
+
+| Function | Description |
+|----------|-------------|
+| `setYear(date, year)` | Set year |
+| `setMonth(date, month)` | Set month (1-12) |
+| `setDate(date, day)` | Set day of month |
+| `setHours(date, hours)` | Set hours |
+| `setMinutes(date, minutes)` | Set minutes |
+| `setSeconds(date, seconds)` | Set seconds |
+| `setMilliseconds(date, ms)` | Set milliseconds |
+
+```typescript
+setYear(date, 2026);           // New timestamp with year 2026
+setMonth(date, 3);             // New timestamp with March
+setDate(setMonth(date, 3), 15); // March 15th
+```
+
+::: tip
+Setters handle edge cases automatically. Setting month to February when day is 31 will clamp to 28/29.
+:::
+
+---
+
 ## Arithmetic
 
 | Function | Description |
@@ -194,6 +227,38 @@ isLeapYear(date); // false
 
 ---
 
+## Timezone-Aware Predicates
+
+Check dates in specific timezones. Essential for global apps where "today" depends on location.
+
+| Function | Description |
+|----------|-------------|
+| `isTodayInTz(date, tz)` | Today in timezone? |
+| `isTomorrowInTz(date, tz)` | Tomorrow in timezone? |
+| `isYesterdayInTz(date, tz)` | Yesterday in timezone? |
+| `isSameDayInTz(date1, date2, tz)` | Same day in timezone? |
+| `isSameMonthInTz(date1, date2, tz)` | Same month in timezone? |
+| `isSameYearInTz(date1, date2, tz)` | Same year in timezone? |
+| `startOfDayInTz(date, tz)` | Midnight in timezone |
+| `endOfDayInTz(date, tz)` | 23:59:59.999 in timezone |
+
+```typescript
+// Check if timestamp is "today" in Tokyo
+isTodayInTz(date, 'Asia/Tokyo');
+
+// Get midnight in New York (returns UTC timestamp)
+startOfDayInTz(date, 'America/New_York');
+
+// Compare two dates in London timezone
+isSameDayInTz(date1, date2, 'Europe/London');
+```
+
+::: tip Use Case
+A global restaurant app needs to check if an order was placed "today" in the restaurant's local timezone, not the user's device timezone.
+:::
+
+---
+
 ## Boundaries
 
 | Function | Description |
@@ -259,6 +324,7 @@ formatDuration(3600000);                 // "1h 0m 0s"
 | `getTimezone()` | Device timezone ID |
 | `getTimezoneOffset()` | Offset in minutes |
 | `getTimezoneOffsetForTimestamp(date)` | Offset at date |
+| `getOffsetInTimezone(date, tz)` | Offset for timezone at date |
 | `toTimezone(date, tz)` | Convert to timezone |
 | `toUTC(date)` | Convert to UTC |
 | `getAvailableTimezones()` | All timezone IDs |

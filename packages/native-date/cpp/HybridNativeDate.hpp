@@ -82,10 +82,21 @@ public:
     std::string getTimezone() override;
     double getTimezoneOffset() override;
     double getTimezoneOffsetForTimestamp(double timestamp) override;
+    double getOffsetInTimezone(double timestamp, const std::string& timezone) override;
     double toTimezone(double timestamp, const std::string& timezone) override;
     std::string formatInTimezone(double timestamp, const std::string& pattern, const std::string& timezone) override;
     std::vector<std::string> getAvailableTimezones() override;
     bool isValidTimezone(const std::string& timezone) override;
+
+    // Timezone-aware predicates (InTz)
+    bool isTodayInTz(double timestamp, const std::string& timezone) override;
+    bool isTomorrowInTz(double timestamp, const std::string& timezone) override;
+    bool isYesterdayInTz(double timestamp, const std::string& timezone) override;
+    bool isSameDayInTz(double timestamp1, double timestamp2, const std::string& timezone) override;
+    bool isSameMonthInTz(double timestamp1, double timestamp2, const std::string& timezone) override;
+    bool isSameYearInTz(double timestamp1, double timestamp2, const std::string& timezone) override;
+    double startOfDayInTz(double timestamp, const std::string& timezone) override;
+    double endOfDayInTz(double timestamp, const std::string& timezone) override;
 
     // Locale
     std::string getLocale() override;
@@ -125,8 +136,11 @@ private:
     // Internal format helper
     static std::string formatInternal(double timestamp, const std::string& pattern, bool useUTC);
 
-    // Convert components to timestamp
+    // Convert components to timestamp (UTC)
     static double componentsToTimestamp(const InternalDateComponents& components);
+
+    // Convert components to timestamp (local time)
+    static double componentsToTimestampLocal(const InternalDateComponents& components);
 
     // Parse ISO8601 date string
     static double parseISO8601(const std::string& dateString);

@@ -24,16 +24,16 @@ jobs:
         run: yarn install --immutable
 
       - name: Lint
-        run: yarn workspace @rn-packages/native-date lint
+        run: yarn workspace @bernagl/react-native-date lint
 
       - name: Type check
-        run: yarn workspace @rn-packages/native-date typecheck
+        run: yarn workspace @bernagl/react-native-date typecheck
 
       - name: Run tests
-        run: yarn workspace @rn-packages/native-date test
+        run: yarn workspace @bernagl/react-native-date test
 
       - name: Build
-        run: yarn workspace @rn-packages/native-date prepare
+        run: yarn workspace @bernagl/react-native-date prepare
 
   build-android:
     runs-on: ubuntu-latest
@@ -59,7 +59,7 @@ jobs:
         run: yarn install --immutable
 
       - name: Build library
-        run: yarn workspace @rn-packages/native-date prepare
+        run: yarn workspace @bernagl/react-native-date prepare
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -72,7 +72,7 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - name: Build Android example
-        working-directory: packages/native-date/example/android
+        working-directory: packages/example/android
         run: ./gradlew assembleDebug --no-daemon
 
   build-ios:
@@ -93,28 +93,28 @@ jobs:
         run: yarn install --immutable
 
       - name: Build library
-        run: yarn workspace @rn-packages/native-date prepare
+        run: yarn workspace @bernagl/react-native-date prepare
 
       - name: Cache CocoaPods
         uses: actions/cache@v4
         with:
-          path: packages/native-date/example/ios/Pods
+          path: packages/example/ios/Pods
           key: ${{ runner.os }}-pods-${{ hashFiles('**/Podfile.lock') }}
           restore-keys: |
             ${{ runner.os }}-pods-
 
       - name: Install CocoaPods
-        working-directory: packages/native-date/example/ios
+        working-directory: packages/example/ios
         run: pod install
 
       - name: Build iOS example
-        working-directory: packages/native-date/example/ios
+        working-directory: packages/example/ios
         run: |
           xcodebuild \
             -workspace NativeDateExample.xcworkspace \
             -scheme NativeDateExample \
             -sdk iphonesimulator \
             -configuration Debug \
-            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -destination 'generic/platform=iOS Simulator' \
             build \
             CODE_SIGNING_ALLOWED=NO

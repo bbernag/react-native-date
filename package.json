@@ -2,8 +2,7 @@
   "name": "react-native-packages",
   "private": true,
   "workspaces": [
-    "packages/*",
-    "packages/*/example"
+    "packages/*"
   ],
   "scripts": {
     "native-date": "yarn workspace @rn-packages/native-date",
@@ -20,6 +19,7 @@
     "jest": "^30.2.0",
     "ts-jest": "^29.4.5",
     "turbo": "^2.0.0",
+    "typescript": "^5.9.2",
     "vitepress": "^1.6.4",
     "vue": "^3.5.25"
   }

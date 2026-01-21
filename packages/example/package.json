@@ -10,7 +10,9 @@
     "build:ios": "react-native build-ios --mode Debug"
   },
   "dependencies": {
+    "@bernagl/react-native-date": "*",
     "@date-fns/tz": "^1.4.1",
+    "@rn-packages/native-date-examples": "*",
     "date-fns": "^4.1.0",
     "dayjs": "^1.11.19",
     "luxon": "^3.5.0",

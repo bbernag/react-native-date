@@ -554,27 +554,28 @@ describe('Date Standards Compliance', () => {
     });
 
     describe('isSameDay / isSameMonth / isSameYear', () => {
-      it('should identify same day', () => {
-        const date1 = parse('2024-06-15T10:00:00Z');
-        const date2 = parse('2024-06-15T20:00:00Z');
+      it('should identify same day (local time comparison)', () => {
+        // Use local time strings - these should be same day in any timezone
+        const date1 = parse('2024-06-15T10:00:00');
+        const date2 = parse('2024-06-15T20:00:00');
         expect(isSameDay(date1, date2)).toBe(true);
       });
 
-      it('should identify different days', () => {
-        const date1 = parse('2024-06-15T12:00:00Z');
-        const date2 = parse('2024-06-16T12:00:00Z');
+      it('should identify different days (local time comparison)', () => {
+        const date1 = parse('2024-06-15T12:00:00');
+        const date2 = parse('2024-06-16T12:00:00');
         expect(isSameDay(date1, date2)).toBe(false);
       });
 
-      it('should identify same month', () => {
-        const date1 = parse('2024-06-01T12:00:00Z');
-        const date2 = parse('2024-06-30T12:00:00Z');
+      it('should identify same month (local time comparison)', () => {
+        const date1 = parse('2024-06-01T12:00:00');
+        const date2 = parse('2024-06-30T12:00:00');
         expect(isSameMonth(date1, date2)).toBe(true);
       });
 
-      it('should identify same year', () => {
-        const date1 = parse('2024-01-15T12:00:00Z');
-        const date2 = parse('2024-12-15T12:00:00Z');
+      it('should identify same year (local time comparison)', () => {
+        const date1 = parse('2024-01-15T12:00:00');
+        const date2 = parse('2024-12-15T12:00:00');
         expect(isSameYear(date1, date2)).toBe(true);
       });
     });
