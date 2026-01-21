@@ -757,7 +757,10 @@ export function getTimezoneOffsetForTimestamp(date: DateInput): number {
   return NativeDateModule.getTimezoneOffsetForTimestamp(toTimestamp(date));
 }
 
-export function getOffsetInTimezone(date: DateInput, timezone: Timezone): number {
+export function getOffsetInTimezone(
+  date: DateInput,
+  timezone: Timezone
+): number {
   return NativeDateModule.getOffsetInTimezone(toTimestamp(date), timezone);
 }
 
@@ -1149,13 +1152,21 @@ export function isToday(date: DateInput): boolean {
 export function isTomorrow(date: DateInput): boolean {
   const d = getComponents(date);
   const tomorrow = getComponents(addDays(now(), 1));
-  return d.year === tomorrow.year && d.month === tomorrow.month && d.day === tomorrow.day;
+  return (
+    d.year === tomorrow.year &&
+    d.month === tomorrow.month &&
+    d.day === tomorrow.day
+  );
 }
 
 export function isYesterday(date: DateInput): boolean {
   const d = getComponents(date);
   const yesterday = getComponents(subDays(now(), 1));
-  return d.year === yesterday.year && d.month === yesterday.month && d.day === yesterday.day;
+  return (
+    d.year === yesterday.year &&
+    d.month === yesterday.month &&
+    d.day === yesterday.day
+  );
 }
 
 export function isPast(date: DateInput): boolean {
@@ -1320,7 +1331,15 @@ function fromComponentsLocal(components: {
     millisecond = 0,
   } = components;
   // Use new Date() constructor which interprets as local time (month is 0-indexed)
-  return new Date(year, month - 1, day, hour, minute, second, millisecond).getTime();
+  return new Date(
+    year,
+    month - 1,
+    day,
+    hour,
+    minute,
+    second,
+    millisecond
+  ).getTime();
 }
 
 // Setters (immutable - return new timestamp)

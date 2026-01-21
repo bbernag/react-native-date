@@ -226,7 +226,11 @@ describe('Timezone-Aware Predicates (InTz)', () => {
     it('should return midnight UTC for UTC timezone', () => {
       const date = parse('2024-06-15T14:30:00Z');
       const startOfDay = startOfDayInTz(date, 'UTC');
-      const formatted = formatInTimezone(startOfDay, 'yyyy-MM-dd HH:mm:ss', 'UTC');
+      const formatted = formatInTimezone(
+        startOfDay,
+        'yyyy-MM-dd HH:mm:ss',
+        'UTC'
+      );
       expect(formatted).toBe('2024-06-15 00:00:00');
     });
 
@@ -254,7 +258,11 @@ describe('Timezone-Aware Predicates (InTz)', () => {
     it('should return end of day in specified timezone', () => {
       const date = parse('2024-06-15T14:30:00Z');
       const endOfDay = endOfDayInTz(date, 'UTC');
-      const formatted = formatInTimezone(endOfDay, 'yyyy-MM-dd HH:mm:ss', 'UTC');
+      const formatted = formatInTimezone(
+        endOfDay,
+        'yyyy-MM-dd HH:mm:ss',
+        'UTC'
+      );
       expect(formatted).toBe('2024-06-15 23:59:59');
     });
 
