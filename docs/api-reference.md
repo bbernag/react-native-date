@@ -10,7 +10,7 @@ type DateInput = number | string | Date;
 - `parse()` now uses **local time** for date-only strings (was UTC)
 - Getter functions now return **local time** components (was UTC)
 
-See [Release Notes](/RELEASE_NOTES_v2.0.0.md) for migration guide.
+See [Release Notes](https://github.com/bbernag/react-native-date/blob/main/packages/native-date/RELEASE_NOTES_v2.0.0.md) for migration guide.
 :::
 
 ## Parsing
