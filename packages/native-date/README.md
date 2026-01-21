@@ -2,12 +2,16 @@
 
 High-performance native date library for React Native, powered by C++ and [Nitro Modules](https://nitro.margelo.com/).
 
+> **v2.0 Breaking Changes:** `parse()` and getter functions now use local time for date-only strings (previously UTC). See [RELEASE_NOTES_v2.0.0.md](./RELEASE_NOTES_v2.0.0.md) for migration guide.
+
 ## Features
 
 - **Native Performance**: C++ implementation with JSI bindings for minimal bridge overhead
-- **date-fns-like API**: Familiar functional API with 75+ functions
+- **date-fns-like API**: Familiar functional API with 80+ functions
 - **Timezone Support**: Full IANA timezone support with formatting and conversion
+- **Timezone-Aware Predicates**: Check dates in specific timezones (isToday in Tokyo, etc.)
 - **Async Batch Operations**: Background thread processing for heavy workloads
+- **Expo Compatible**: Works with Expo Dev Client (SDK 54+)
 - **Tree-shakeable**: Import only what you need
 - **TypeScript First**: Full type definitions included
 
@@ -34,6 +38,17 @@ cd ios && pod install
 ### Android
 
 No additional setup required.
+
+### Expo
+
+Requires Expo Dev Client (not Expo Go):
+
+```sh
+npx expo prebuild
+npx expo run:ios
+# or
+npx expo run:android
+```
 
 ## Quick Start
 
@@ -158,6 +173,52 @@ import { nativeDate } from '@bernagl/react-native-date/chain';
 | `isPast(timestamp)` | Check if in the past |
 | `isFuture(timestamp)` | Check if in the future |
 
+### Timezone-Aware Predicates
+
+Check dates in specific timezones (useful for global apps):
+
+| Function | Description |
+|----------|-------------|
+| `isTodayInTz(timestamp, tz)` | Check if today in timezone |
+| `isTomorrowInTz(timestamp, tz)` | Check if tomorrow in timezone |
+| `isYesterdayInTz(timestamp, tz)` | Check if yesterday in timezone |
+| `isSameDayInTz(t1, t2, tz)` | Check if same day in timezone |
+| `isSameMonthInTz(t1, t2, tz)` | Check if same month in timezone |
+| `isSameYearInTz(t1, t2, tz)` | Check if same year in timezone |
+| `startOfDayInTz(timestamp, tz)` | Start of day in timezone |
+| `endOfDayInTz(timestamp, tz)` | End of day in timezone |
+
+```typescript
+import { isTodayInTz, startOfDayInTz } from '@bernagl/react-native-date';
+
+// Check if a timestamp is "today" in Tokyo
+isTodayInTz(timestamp, 'Asia/Tokyo');
+
+// Get midnight in New York
+startOfDayInTz(timestamp, 'America/New_York');
+```
+
+### Setters
+
+Immutable setters that return new timestamps:
+
+| Function | Description |
+|----------|-------------|
+| `setYear(timestamp, year)` | Set year |
+| `setMonth(timestamp, month)` | Set month (1-12) |
+| `setDate(timestamp, day)` | Set day of month |
+| `setHours(timestamp, hours)` | Set hours |
+| `setMinutes(timestamp, minutes)` | Set minutes |
+| `setSeconds(timestamp, seconds)` | Set seconds |
+| `setMilliseconds(timestamp, ms)` | Set milliseconds |
+
+```typescript
+import { setMonth, setDate } from '@bernagl/react-native-date';
+
+// Set to March 15th
+const newDate = setDate(setMonth(timestamp, 3), 15);
+```
+
 ### Boundaries
 
 | Function | Description |
@@ -200,6 +261,7 @@ import { nativeDate } from '@bernagl/react-native-date/chain';
 |----------|-------------|
 | `getTimezone()` | Get device timezone |
 | `getTimezoneOffset()` | Get timezone offset in minutes |
+| `getOffsetInTimezone(timestamp, tz)` | Get offset for specific timezone at specific time |
 | `getAvailableTimezones()` | List all available timezones |
 | `isValidTimezone(tz)` | Check if timezone is valid |
 | `toTimezone(timestamp, tz)` | Convert to timezone |

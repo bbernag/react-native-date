@@ -157,6 +157,8 @@ import { nativeDate } from '@bernagl/react-native-date/chain';
 - **Zero-config locales** - Reads from OS, no plugins or imports
 - **150+ locales** - Every locale supported by iOS/Android
 - **Timezone support** - Full IANA timezone database from the OS
+- **Timezone-aware predicates** - Check "is today in Tokyo?" etc.
+- **Expo compatible** - Works with Expo Dev Client (SDK 54+)
 - **Tiny footprint** - No locale bundles, minimal JS
 - **Tree-shakeable** - Only bundle what you use
 - **Type-safe** - Full TypeScript support
@@ -180,8 +182,19 @@ import { nativeDate } from '@bernagl/react-native-date/chain';
 npm install @bernagl/react-native-date react-native-nitro-modules
 ```
 
+### React Native CLI
+
 ```bash
 cd ios && pod install
+```
+
+### Expo
+
+Requires Expo Dev Client (not Expo Go):
+
+```bash
+npx expo prebuild
+npx expo run:ios
 ```
 
 No additional setup. No locale configuration. Just install and use.
