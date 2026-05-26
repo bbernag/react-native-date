@@ -5,7 +5,7 @@
     "packages/*"
   ],
   "scripts": {
-    "native-date": "yarn workspace @rn-packages/native-date",
+    "native-date": "yarn workspace @bernagl/react-native-date",
     "prepare": "yarn native-date prepare",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
