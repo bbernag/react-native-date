@@ -173,6 +173,7 @@ import { nativeDate } from '@bernagl/react-native-date/chain';
 | iOS | 13.0+ |
 | Android | API 24+ (Android 7.0) |
 | React Native | 0.76+ (New Architecture) |
+| Nitro Modules | 0.35.x |
 
 ---
 

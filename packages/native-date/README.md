@@ -2,6 +2,8 @@
 
 High-performance native date library for React Native, powered by C++ and [Nitro Modules](https://nitro.margelo.com/).
 
+> **v3.0 Native Requirement:** This release requires `react-native-nitro-modules >=0.35.0 <0.36.0`. See [RELEASE_NOTES_v3.0.0.md](./RELEASE_NOTES_v3.0.0.md) for migration steps.
+
 > **v2.0 Breaking Changes:** `parse()` and getter functions now use local time for date-only strings (previously UTC). See [RELEASE_NOTES_v2.0.0.md](./RELEASE_NOTES_v2.0.0.md) for migration guide.
 
 ## Features
@@ -18,6 +20,7 @@ High-performance native date library for React Native, powered by C++ and [Nitro
 ## Requirements
 
 - React Native 0.76+ (New Architecture required)
+- Nitro Modules 0.35.x
 - iOS 13.0+
 - Android SDK 24+
 

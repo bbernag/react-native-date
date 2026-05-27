@@ -171,6 +171,12 @@ const EARLIER_TS = parse(EARLIER_DATE);
 const LATER_DATE = '2024-06-20T18:00:00.000Z';
 const LATER_TS = parse(LATER_DATE);
 
+const durationIncludesUnit = (
+  value: string,
+  amount: number,
+  unit: 'd' | 'h'
+) => value.replace(/[,\s]/g, '').startsWith(`${amount}${unit}`);
+
 function createTestCategories(): Record<TabName, TestCategory> {
   return {
     Core: {
@@ -1313,14 +1319,14 @@ function createTestCategories(): Record<TabName, TestCategory> {
         // formatDuration
         {
           name: 'formatDuration() 1 hour',
-          test: () => formatDuration(3600000).includes('1h'),
-          expected: 'contains "1h"',
+          test: () => durationIncludesUnit(formatDuration(3600000), 1, 'h'),
+          expected: 'starts with 1 hour unit',
           getActual: () => formatDuration(3600000),
         },
         {
           name: 'formatDuration() 1 day',
-          test: () => formatDuration(86400000).includes('1d'),
-          expected: 'contains "1d"',
+          test: () => durationIncludesUnit(formatDuration(86400000), 1, 'd'),
+          expected: 'starts with 1 day unit',
           getActual: () => formatDuration(86400000),
         },
         // toISOString

@@ -1,6 +1,6 @@
 {
   "name": "@bernagl/react-native-date",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "The fastest date library for React Native. Powered by C++ and Nitro Modules.",
   "sideEffects": false,
   "main": "./lib/module/index.js",
@@ -26,6 +26,8 @@
     "cpp",
     "nitrogen",
     "nitro.json",
+    "CHANGELOG.md",
+    "RELEASE_NOTES_*.md",
     "*.podspec",
     "react-native.config.js",
     "!ios/build",
@@ -112,12 +114,12 @@
     "eslint-plugin-react-native": "^5.0.0",
     "jest": "^30.2.0",
     "lefthook": "^2.0.3",
-    "nitrogen": "^0.31.10",
+    "nitrogen": "0.35.7",
     "prettier": "^2.8.8",
     "react": "19.1.0",
     "react-native": "0.81.1",
     "react-native-builder-bob": "^0.40.16",
-    "react-native-nitro-modules": "^0.31.10",
+    "react-native-nitro-modules": "0.35.7",
     "ts-jest": "^29.4.6",
     "turbo": "^2.5.6",
     "typescript": "^5.9.2"
@@ -125,7 +127,7 @@
   "peerDependencies": {
     "react": "*",
     "react-native": "*",
-    "react-native-nitro-modules": "^0.31.10"
+    "react-native-nitro-modules": ">=0.35.0 <0.36.0"
   },
   "react-native-builder-bob": {
     "source": "src",

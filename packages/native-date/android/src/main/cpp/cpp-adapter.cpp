@@ -1,4 +1,5 @@
 #include <jni.h>
+#include <fbjni/fbjni.h>
 #include "rnpackages_nativedateOnLoad.hpp"
 
 // Forward declarations for platform helpers
@@ -12,5 +13,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     LocaleHelper_setJavaVM(vm);
     RelativeTimeHelper_setJavaVM(vm);
 
-    return margelo::nitro::rnpackages_nativedate::initialize(vm);
+    return facebook::jni::initialize(vm, []() {
+        margelo::nitro::rnpackages_nativedate::registerAllNatives();
+    });
 }
