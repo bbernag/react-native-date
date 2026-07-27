@@ -19,7 +19,7 @@ npm install @bernagl/react-native-date react-native-nitro-modules
 cd ios && pod install
 ```
 
-**Requirements:** React Native 0.76+ (New Architecture) • Nitro Modules 0.35.x • iOS 13.0+ • Android API 24+
+**Requirements:** React Native 0.76+ (New Architecture) • Nitro Modules 0.36.x • iOS 13.0+ • Android API 24+
 
 ## Is this library for you?
 
