@@ -6,10 +6,10 @@ All functions accept flexible date inputs and return timestamps (milliseconds si
 type DateInput = number | string | Date;
 ```
 
-::: warning v3.0 Native Requirement
-v3.0 requires `react-native-nitro-modules >=0.35.0 <0.36.0`. Reinstall pods and rebuild native apps after upgrading.
+::: warning v4.0 Native Requirement
+v4.0 requires `react-native-nitro-modules >=0.36.0 <0.37.0`. Reinstall pods and rebuild native apps after upgrading.
 
-See [Release Notes](https://github.com/bbernag/react-native-date/blob/main/packages/native-date/RELEASE_NOTES_v3.0.0.md) for migration steps.
+See [Release Notes](https://github.com/bbernag/react-native-date/blob/main/packages/native-date/RELEASE_NOTES_v4.0.0.md) for migration steps.
 :::
 
 ::: warning v2.0 Breaking Changes
