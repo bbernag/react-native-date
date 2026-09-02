@@ -84,3 +84,9 @@ android/generated
 
 # React Native Nitro Modules
 nitrogen/
+
+# C++ unit-test build output
+cpp-tests/build/
+cpp-tests/build-asan/
+# Vendored single-header test framework (root .gitignore excludes **/vendor/ for Ruby bundles)
+!cpp-tests/vendor/

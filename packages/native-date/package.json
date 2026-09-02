@@ -51,6 +51,8 @@
     "test": "npx jest",
     "test:watch": "npx jest --watch",
     "test:coverage": "npx jest --coverage",
+    "test:cpp": "cmake -S cpp-tests -B cpp-tests/build -DCMAKE_BUILD_TYPE=Debug && cmake --build cpp-tests/build && ctest --test-dir cpp-tests/build --output-on-failure",
+    "test:cpp:asan": "cmake -S cpp-tests -B cpp-tests/build-asan -DCMAKE_BUILD_TYPE=Debug -DNATIVEDATE_SANITIZE=ON && cmake --build cpp-tests/build-asan && ctest --test-dir cpp-tests/build-asan --output-on-failure",
     "benchmark": "npx jest benchmarks/benchmark.test.ts --testPathIgnorePatterns=/node_modules/ --verbose",
     "prepack": "yarn prepare",
     "release": "yarn test && yarn lint && yarn typecheck && yarn prepare",

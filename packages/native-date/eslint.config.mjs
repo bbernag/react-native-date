@@ -24,6 +24,8 @@ export default defineConfig([
     },
   },
   {
-    ignores: ['node_modules/', 'lib/'],
+    ignores: [
+      'cpp-tests/**',
+      'coverage/**','node_modules/', 'lib/'],
   },
 ]);
