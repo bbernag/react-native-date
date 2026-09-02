@@ -112,8 +112,12 @@ The performance gap **widens significantly** on budget devices:
 The native C++ implementation shines on low-end devices where JavaScript performance is constrained. Essential for apps targeting emerging markets.
 :::
 
-::: info Benchmark Methodology
-Results obtained from the [example app](https://github.com/bbernag/react-native-date/tree/main/packages/native-date/example) using the **Benchmark** tab. Each operation runs 1,000 iterations to calculate ops/sec. Run the example app on your own device to verify results.
+::: warning Historical figures — to be re-measured
+These numbers come from an earlier on-device run of the Benchmark tab. **Device, OS, RN, Hermes, and build type were not recorded.** The current example app is React Native 0.81.1 with Hermes; the Benchmark tab defaults to **5,000** iterations (not 1,000) with warmup. Treat the table as directional, not a v4 claim. Re-run `packages/example` on a named device to replace it.
+:::
+
+::: info How to measure
+Use the [bare example app](https://github.com/bbernag/react-native-date/tree/main/packages/example) **Benchmark** tab. Record device, OS, RN, Hermes, Debug vs Release, and iteration count with any published result.
 :::
 
 ### Familiar API
@@ -170,12 +174,17 @@ import { nativeDate } from '@bernagl/react-native-date/chain';
 
 | Platform | Minimum Version |
 |----------|-----------------|
-| iOS | 13.0+ |
+| iOS | **15.1+** |
+| Xcode | **16.1+** |
 | Android | API 24+ (Android 7.0) |
-| React Native | 0.76+ (New Architecture) |
-| Nitro Modules | 0.36.x |
+| React Native | **0.81+** (New Architecture) |
+| Nitro Modules | 0.36.x (`>=0.36.0 <0.37.0`, pin `0.36.5`) |
 
 ---
+
+::: warning v4.0
+v4 is a breaking native bump **and** a stricter date contract: invalid ISO throws, unknown time zones throw, day arithmetic is calendar math, month/year clamp. See [Semantics](./semantics.md) and the [v4 release notes](https://github.com/bbernag/react-native-date/blob/main/packages/native-date/RELEASE_NOTES_v4.0.0.md).
+:::
 
 ## Installation
 
@@ -191,11 +200,12 @@ cd ios && pod install
 
 ### Expo
 
-Requires Expo Dev Client (not Expo Go):
+Requires a development build with native code (not Expo Go / web). The native module is created on first call:
 
 ```bash
 npx expo prebuild
 npx expo run:ios
+npx expo run:android
 ```
 
 No additional setup. No locale configuration. Just install and use.
@@ -248,7 +258,7 @@ The library uses native OS APIs - no JavaScript locale data needed:
 | iOS | [`NSLocale`](https://developer.apple.com/documentation/foundation/nslocale), [`NSDateFormatter`](https://developer.apple.com/documentation/foundation/nsdateformatter) |
 | Android | [`java.util.Locale`](https://developer.android.com/reference/java/util/Locale), [`DateFormatSymbols`](https://developer.android.com/reference/java/text/DateFormatSymbols) |
 
-**Default behavior:** If you never call `setLocale()`, the library automatically uses the device's language setting. Month names, day names, and formatting respect the user's preferences with zero configuration.
+**Default behavior:** If you never call `setLocale()`, the library automatically uses the device's language setting. Month names, day names, and formatting respect the user's preferences with zero configuration. There is no `"Locale not set"` error.
 
 ```typescript
 // User's device is set to French
@@ -260,6 +270,7 @@ format(Date.now(), 'EEEE d MMMM yyyy');
 
 ## Next Steps
 
+- [Semantics](./semantics.md) - Error policy, parsing, arithmetic, time zones
 - [API Reference](./api-reference.md) - All functions
 - [Examples](./examples.md) - Code samples
 - [Locales](./locales.md) - Internationalization details

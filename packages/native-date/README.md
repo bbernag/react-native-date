@@ -2,7 +2,7 @@
 
 High-performance native date library for React Native, powered by C++ and [Nitro Modules](https://nitro.margelo.com/).
 
-> **v4.0 Native Requirement:** This release requires `react-native-nitro-modules >=0.36.0 <0.37.0`. See [RELEASE_NOTES_v4.0.0.md](./RELEASE_NOTES_v4.0.0.md) for migration steps.
+> **v4.0:** Requires `react-native-nitro-modules >=0.36.0 <0.37.0` (pin `0.36.5`), React Native 0.81+, iOS 15.1+, Xcode 16.1+. Parsing, time zones, and arithmetic are stricter than v3 — see [RELEASE_NOTES_v4.0.0.md](./RELEASE_NOTES_v4.0.0.md) and [Semantics](https://bbernag.github.io/react-native-date/semantics).
 
 > **v2.0 Breaking Changes:** `parse()` and getter functions now use local time for date-only strings (previously UTC). See [RELEASE_NOTES_v2.0.0.md](./RELEASE_NOTES_v2.0.0.md) for migration guide.
 
@@ -10,18 +10,18 @@ High-performance native date library for React Native, powered by C++ and [Nitro
 
 - **Native Performance**: C++ implementation with JSI bindings for minimal bridge overhead
 - **date-fns-like API**: Familiar functional API with 80+ functions
-- **Timezone Support**: Full IANA timezone support with formatting and conversion
+- **Timezone Support**: IANA zones from the OS (common IDs plus any OS string)
 - **Timezone-Aware Predicates**: Check dates in specific timezones (isToday in Tokyo, etc.)
 - **Async Batch Operations**: Background thread processing for heavy workloads
 - **Expo Compatible**: Works with Expo Dev Client (SDK 54+)
-- **Tree-shakeable**: Import only what you need
+- **Tree-shakeable**: Import only what you need (`/chain` does not load the barrel)
 - **TypeScript First**: Full type definitions included
 
 ## Requirements
 
-- React Native 0.76+ (New Architecture required)
-- Nitro Modules 0.36.x
-- iOS 13.0+
+- React Native **0.81+** (New Architecture required)
+- Nitro Modules 0.36.x (`>=0.36.0 <0.37.0`; install `0.36.5`)
+- iOS **15.1+**, Xcode **16.1+**
 - Android SDK 24+
 
 ## Installation
@@ -44,7 +44,7 @@ No additional setup required.
 
 ### Expo
 
-Requires Expo Dev Client (not Expo Go):
+Requires a development build with native code (not Expo Go / web). The native module is created on first use:
 
 ```sh
 npx expo prebuild
@@ -84,6 +84,8 @@ const daysUntil = diffInDays(christmas, timestamp);
 console.log(formatDateTime(timestamp)); // "2024-06-15 14:30:45"
 ```
 
+Invalid ISO, unknown time zones, and non-finite timestamps **throw** from parse/format/arithmetic. `tryParse` returns `null`; `is*` predicates return `false`; `min([])` / `max([])` throw. `Timezone` is common IANA IDs **plus any OS string** — it is not a complete list.
+
 ## Chainable API
 
 Day.js-style chainable interface:
@@ -96,7 +98,7 @@ nativeDate()
   .startOfMonth()
   .format('yyyy-MM-dd');
 
-// Or import separately for optimal tree-shaking
+// Does not load the main barrel
 import { nativeDate } from '@bernagl/react-native-date/chain';
 ```
 
@@ -107,8 +109,8 @@ import { nativeDate } from '@bernagl/react-native-date/chain';
 | Function | Description |
 |----------|-------------|
 | `now()` | Returns current timestamp in milliseconds |
-| `parse(dateString)` | Parse ISO 8601 string to timestamp |
-| `tryParse(dateString)` | Safe parse, returns null on invalid input |
+| `parse(dateString)` | Parse ISO 8601 (strict; date-only = local midnight); throws on invalid input |
+| `tryParse(dateString)` | Same parser; returns `null` on invalid input |
 | `format(timestamp, pattern)` | Format timestamp with pattern |
 
 ### Getters
@@ -132,18 +134,18 @@ import { nativeDate } from '@bernagl/react-native-date/chain';
 | `getDaysInMonth(timestamp)` | Days in the month |
 | `isLeapYear(timestamp)` | Check if leap year |
 | `isWeekend(timestamp)` | Check if Saturday or Sunday |
-| `isValid(timestamp)` | Check if valid timestamp |
+| `isValid(timestamp)` | Finite and within ±8.64e15 ms |
 
 ### Arithmetic
 
 | Function | Description |
 |----------|-------------|
-| `add(timestamp, amount, unit)` | Add time units |
+| `add(timestamp, amount, unit)` | Add time units (day/week = calendar math; month/year clamp) |
 | `subtract(timestamp, amount, unit)` | Subtract time units |
-| `addDays(timestamp, days)` | Add days |
-| `addMonths(timestamp, months)` | Add months |
-| `addYears(timestamp, years)` | Add years |
-| `addWeeks(timestamp, weeks)` | Add weeks |
+| `addDays(timestamp, days)` | Add calendar days (same wall clock across DST) |
+| `addMonths(timestamp, months)` | Add months (clamp to last valid day) |
+| `addYears(timestamp, years)` | Add years (Feb 29 → Feb 28) |
+| `addWeeks(timestamp, weeks)` | Add calendar weeks |
 | `addHours(timestamp, hours)` | Add hours |
 | `addMinutes(timestamp, minutes)` | Add minutes |
 | `addSeconds(timestamp, seconds)` | Add seconds |
@@ -170,9 +172,9 @@ import { nativeDate } from '@bernagl/react-native-date/chain';
 
 | Function | Description |
 |----------|-------------|
-| `isToday(timestamp)` | Check if today |
-| `isTomorrow(timestamp)` | Check if tomorrow |
-| `isYesterday(timestamp)` | Check if yesterday |
+| `isToday(timestamp)` | Today in the system zone (one native call) |
+| `isTomorrow(timestamp)` | Tomorrow (civil date + 1, not +24 h) |
+| `isYesterday(timestamp)` | Yesterday (civil date − 1) |
 | `isPast(timestamp)` | Check if in the past |
 | `isFuture(timestamp)` | Check if in the future |
 
@@ -255,21 +257,21 @@ const newDate = setDate(setMonth(timestamp, 3), 15);
 | Function | Description |
 |----------|-------------|
 | `clamp(timestamp, min, max)` | Clamp to range |
-| `min(timestamps)` | Earliest timestamp |
-| `max(timestamps)` | Latest timestamp |
+| `min(timestamps)` | Earliest; **throws** on `[]` |
+| `max(timestamps)` | Latest; **throws** on `[]` |
 
 ### Timezone
 
 | Function | Description |
 |----------|-------------|
 | `getTimezone()` | Get device timezone |
-| `getTimezoneOffset()` | Get timezone offset in minutes |
+| `getTimezoneOffset()` | Offset in minutes, **east-positive** (opposite of `Date#getTimezoneOffset`) |
 | `getOffsetInTimezone(timestamp, tz)` | Get offset for specific timezone at specific time |
 | `getAvailableTimezones()` | List all available timezones |
 | `isValidTimezone(tz)` | Check if timezone is valid |
-| `toTimezone(timestamp, tz)` | Convert to timezone |
-| `formatInTimezone(timestamp, pattern, tz)` | Format in timezone |
-| `toUTC(timestamp)` | Convert to UTC |
+| `toTimezone(timestamp, tz)` | Shifted epoch for `formatUTC` (not a real instant) |
+| `formatInTimezone(timestamp, pattern, tz)` | Format wall clock in timezone |
+| `toUTC(timestamp)` | **Deprecated** identity |
 | `formatInUTC(timestamp, pattern)` | Format in UTC |
 
 ### Formatting Helpers
@@ -300,24 +302,30 @@ const timestamps = await parseManyAsync([
   '2024-12-25',
 ]);
 
-// Format many timestamps
-const formatted = await formatManyAsync(timestamps, 'yyyy-MM-dd');
+// Full formatter (locale names, quotes, brackets) — `'MMMM d'` → `"June 15"`
+const formatted = await formatManyAsync(timestamps, 'MMMM d');
 
 // Get components for many timestamps
 const components = await getComponentsManyAsync(timestamps);
 ```
 
-## Format Patterns
+## Format vs parse tokens
 
-| Pattern | Description | Example |
-|---------|-------------|---------|
-| `yyyy` | 4-digit year | 2024 |
-| `MM` | 2-digit month | 06 |
-| `dd` | 2-digit day | 15 |
-| `HH` | 2-digit hour (24h) | 14 |
-| `mm` | 2-digit minute | 30 |
-| `ss` | 2-digit second | 45 |
-| `SSS` | 3-digit millisecond | 123 |
+**Format** tokens emit text. `M` is the locale **narrow month name** (`"M"` for March), not a number. `MM` is `03`.
+
+**Parse** tokens (`parseFormat`) read input. Parse `M` is a 1–2 digit **numeric** month. `M` does not round-trip; `MM` does. Locale names (`MMM`, `EEEE`, …) are format-only.
+
+| Format token | Example | Parse token? |
+|--------------|---------|--------------|
+| `yyyy` | 2024 | yes (`yyyy` / `YYYY`) |
+| `MMMM` | June | no |
+| `MM` | 06 | yes |
+| `M` | J (narrow name) | yes, but **numeric** month |
+| `dd` | 15 | yes (`dd` / `DD`) |
+| `HH` | 14 | yes |
+| `mm` / `ss` / `SSS` | 30 / 45 / 123 | yes |
+
+ISO `parse()` is a separate grammar (`YYYY-MM-DD[T HH:mm…][Z|offset]`); it is not `Date.parse()`. Invalid input throws. Full tables: [API reference](https://bbernag.github.io/react-native-date/api-reference).
 
 ## Time Units
 
@@ -334,20 +342,9 @@ Available units for `add()`, `subtract()`, `diff()`, `startOf()`, `endOf()`, `is
 
 ## Performance
 
-NativeDate is optimized for performance with C++ implementation and JSI bindings.
+C++ + Nitro JSI. Do **not** use `yarn benchmark` numbers: that Jest file runs against a JavaScript mock in Node and is not native performance.
 
-Benchmark results (vs date-fns/dayjs):
-
-| Operation | NativeDate | Improvement |
-|-----------|------------|-------------|
-| format() | 425K ops/s | ~2x faster |
-| addMonths() | 3.4M ops/s | ~2.5x faster |
-| diffInDays() | 5.7M ops/s | ~22x faster |
-
-Run benchmarks:
-```sh
-yarn benchmark
-```
+On-device figures live in the [docs](https://bbernag.github.io/react-native-date/#native-performance) and are marked **to be re-measured** (device/OS/RN/Hermes/build were not recorded with the original run). Measure with the [example app](https://github.com/bbernag/react-native-date/tree/main/packages/example) Benchmark tab (default 5,000 iterations, warmup).
 
 ## Migration from date-fns
 
@@ -370,8 +367,9 @@ diffInDays(timestamp1, timestamp2);
 Key differences:
 - NativeDate uses timestamps (numbers) instead of Date objects
 - Use `now()` instead of `new Date()`
-- Use `parse()` instead of `new Date(string)`
-- `differenceInDays` → `diffInDays`
+- Use `parse()` instead of `new Date(string)` (strict ISO, local date-only)
+- `differenceInDays` → `diffInDays` (24 h durations; calendar add is `addDays`)
+- Month overflow: JS `Date` goes Jan 31 → Mar 2/3; this library **clamps** to Feb 28/29
 
 ## Migration from dayjs
 
@@ -390,13 +388,14 @@ diffInDays(timestamp1, timestamp2);
 ```
 
 Key differences:
-- Functional API vs method chaining
-- Format patterns use lowercase (`yyyy` vs `YYYY`)
+- Functional API vs method chaining (`/chain` is a separate entry)
+- Format patterns: `yyyy` is the year; `YYYY` is accepted as an alias. Format `M` is a narrow **name**, not the numeric month
 - Timestamps instead of dayjs objects
+- Invalid ISO / unknown time zones throw; `try*` return null; predicates return false
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow.
+See [CONTRIBUTING.md](https://github.com/bbernag/react-native-date/blob/main/CONTRIBUTING.md) for Yarn 4 setup, `test:cpp`, example apps, and the tag-driven release process.
 
 ## License
 

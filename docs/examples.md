@@ -2,14 +2,11 @@
 
 Two API styles: **functional** (like [date-fns](https://date-fns.org/)) and **chainable** (like [Day.js](https://day.js.org/)).
 
-::: tip Tree-Shaking
-For optimal bundle size, import the chainable API separately:
-```typescript
-// Chainable API (separate entry point)
-import { nativeDate } from '@bernagl/react-native-date/chain';
-```
-Both import styles work - use `/chain` for smaller bundles when using only the chainable API.
+::: tip Tree-shaking
+`import { nativeDate } from '@bernagl/react-native-date/chain'` does not load the main barrel. Both import styles work.
 :::
+
+See [Semantics](./semantics.md) for the error policy, ISO grammar, calendar math, and time-zone rules.
 
 ## Formatting
 
@@ -42,7 +39,7 @@ setLocale('es');
 format(Date.now(), 'EEEE, d MMMM'); // "domingo, 30 noviembre"
 
 setLocale('ja');
-format(Date.now(), 'yyyy年M月d日 EEEE'); // "2025年11月30日 日曜日"
+format(Date.now(), 'yyyy年MM月d日 EEEE'); // "2025年11月30日 日曜日"
 ```
 
 ---
@@ -52,16 +49,18 @@ format(Date.now(), 'yyyy年M月d日 EEEE'); // "2025年11月30日 日曜日"
 ```typescript
 import { parse, tryParse, parseFormat, tryParseFormat } from '@bernagl/react-native-date';
 
-// ISO 8601
+// ISO 8601 — date-only is local midnight; invalid input throws
 parse('2025-12-25');
 parse('2025-12-25T14:30:00Z');
-tryParse('invalid');  // null
+tryParse('invalid');  // null (does not throw)
+// parse('2024-02-31') / parse('not-a-date') throw
 
-// Custom format
+// Custom format — whole pattern and whole input must match
 parseFormat('12/25/2025', 'MM/dd/yyyy');
 parseFormat('25-12-2025', 'dd-MM-yyyy');
 parseFormat('12/25/2025 02:30 PM', 'MM/dd/yyyy hh:mm A');
-tryParseFormat('invalid', 'MM/dd/yyyy'); // null
+tryParseFormat('12/25', 'MM/dd/yyyy'); // null (not fully consumed)
+// parseFormat('2024', 'yyyy-MM-dd') throws
 ```
 
 ```typescript
@@ -79,12 +78,12 @@ nativeDate('2025-12-25T14:30:00Z');
 ```typescript
 import { addDays, addMonths, addYears, subDays, add, subtract } from '@bernagl/react-native-date';
 
-addDays(Date.now(), 7);
-addMonths(Date.now(), 3);
+addDays(Date.now(), 7);            // calendar days (wall clock kept across DST)
+addMonths(parse('2024-01-31'), 1); // clamps to Feb 29/28
 addYears(Date.now(), 1);
 subDays(Date.now(), 7);
-add(Date.now(), 30, 'minute');
-subtract(Date.now(), 2, 'week');
+add(Date.now(), 30, 'minute');     // duration (fractions allowed)
+subtract(Date.now(), 2, 'week');   // whole-number week amount
 ```
 
 ```typescript
@@ -195,9 +194,10 @@ nativeDate(date1).diff(date2, 'week');
 ```typescript
 import { formatDistance, formatDuration, now } from '@bernagl/react-native-date';
 
-formatDistance(pastDate, now(), true);   // "2 hours ago"
-formatDistance(futureDate, now(), true); // "in 3 days"
-formatDuration(3600000);                 // "1h 0m 0s"
+formatDistance(pastDate);                            // "2 hours ago"
+formatDistance(futureDate, { addSuffix: true });     // "in 3 days"
+formatDistance(pastDate, { addSuffix: false });      // "2 hours"
+formatDuration(3600000);                             // "1h 0m 0s"
 ```
 
 ---
@@ -208,16 +208,18 @@ formatDuration(3600000);                 // "1h 0m 0s"
 import { getTimezone, toTimezone, formatInTimezone, getAvailableTimezones, isValidTimezone } from '@bernagl/react-native-date';
 
 getTimezone();                           // "America/New_York"
-toTimezone(date, 'Asia/Tokyo');
 formatInTimezone(date, 'HH:mm', 'Europe/London');
+// toTimezone() is a shifted epoch for formatUTC — prefer formatInTimezone
+formatUTC(toTimezone(date, 'Asia/Tokyo'), 'HH:mm');
 getAvailableTimezones();                 // ["Africa/Abidjan", ...]
 isValidTimezone('America/New_York');     // true
+// isValidTimezone('America/NewYork') → false; using it throws
 ```
 
 ```typescript
 // Chainable
-nativeDate().toTimezone('Asia/Tokyo');
-nativeDate().toUTC();
+nativeDate().formatInTimezone('HH:mm', 'Asia/Tokyo');
+JSON.stringify(nativeDate(0)); // "1970-01-01T00:00:00.000Z"
 ```
 
 ---
@@ -227,9 +229,10 @@ nativeDate().toUTC();
 ```typescript
 import { getLocale, setLocale, getAvailableLocales, getLocaleInfo } from '@bernagl/react-native-date';
 
-getLocale();           // "en" (device default)
+getLocale();           // device default, hyphenated (e.g. "en" or "en-US")
 setLocale('es');       // true
-getAvailableLocales(); // { en: 'en', es: 'es', ... }
+setLocale('pt_BR');    // true; getLocale() → "pt-BR"
+getAvailableLocales(); // { en: 'en', es: 'es', ... } (frozen)
 getLocaleInfo('es');   // { code, displayName, nativeName, ... }
 ```
 
@@ -266,6 +269,7 @@ import { clamp, min, max } from '@bernagl/react-native-date';
 clamp(date, minDate, maxDate);
 min([date1, date2, date3]);
 max([date1, date2, date3]);
+// min([]) and max([]) throw
 ```
 
 ---
@@ -276,6 +280,7 @@ max([date1, date2, date3]);
 import { parseManyAsync, formatManyAsync, getComponentsManyAsync } from '@bernagl/react-native-date';
 
 const timestamps = await parseManyAsync(['2025-01-01', '2025-02-15']);
-const formatted = await formatManyAsync(timestamps, 'MMMM d');
+const formatted = await formatManyAsync(timestamps, 'MMMM d'); // "January 1", …
 const components = await getComponentsManyAsync(timestamps);
+// invalid elements → NaN / "" / NaN fields; size > 100000 throws
 ```

@@ -37,16 +37,20 @@ When `setLocale()` is called, the library fetches all localized strings **once**
 
 ## Default Behavior
 
-::: tip
-If `setLocale()` is **never called**, the library uses the device's default locale automatically.
+::: tip Zero config
+If `setLocale()` is **never called**, the device locale is loaded on first use. Localized tokens such as `MMMM` work immediately. The `"Locale not set"` error from earlier versions is gone.
 :::
 
 ```typescript
 import { getLocale, format } from '@bernagl/react-native-date';
 
-getLocale();              // Device default, e.g., "en"
-format(Date.now(), 'MMMM'); // Month in device's language
+getLocale();              // Canonical hyphenated tag, e.g. "en" or "en-US"
+format(Date.now(), 'MMMM'); // Month in the device language
 ```
+
+`setLocale` accepts both `pt_BR` and `pt-BR` (and `pt-br`). `getLocale()` then returns the **canonical hyphenated** identifier from the device list (`pt-BR`). Unknown or unsafe tags return `false` and do not change the locale.
+
+Month and day names are always **Gregorian**, even when the locale's default calendar is Islamic or Hebrew (`ar-SA` + `MMMM` is a Gregorian Arabic month).
 
 ---
 
@@ -93,11 +97,11 @@ Set locale **once** at app startup. Each call refreshes the cache from native AP
 
 ```typescript
 type LocaleInfo = {
-  code: string;         // "pt_BR"
+  code: string;         // "pt-BR" (canonical hyphenated tag)
   languageCode: string; // "pt"
   regionCode: string;   // "BR"
   displayName: string;  // "Portuguese (Brazil)"
-  nativeName: string;   // "Português (Brasil)"
+  nativeName: string;   // "Português (Brasil)" — in that locale's language
 };
 ```
 
@@ -116,6 +120,7 @@ getLocaleDisplayName('ja'); // "Japanese"
 |-------|----|----|-----|
 | `MMMM` | November | noviembre | 11月 |
 | `MMM` | Nov | nov | 11月 |
+| `M` | N | n | narrow name (not `11`) |
 | `EEEE` | Sunday | domingo | 日曜日 |
 | `EEE` | Sun | dom | 日 |
 
@@ -125,7 +130,7 @@ format(Date.now(), 'EEEE, d MMMM yyyy');
 // "domingo, 30 noviembre 2025"
 
 setLocale('ja');
-format(Date.now(), 'yyyy年M月d日 EEEE');
+format(Date.now(), 'yyyy年MM月d日 EEEE');
 // "2025年11月30日 日曜日"
 ```
 
@@ -151,11 +156,11 @@ format(Date.now(), 'yyyy年M月d日 EEEE');
 ### Regional Variants
 
 ```typescript
-setLocale('en_US'); // English (United States)
-setLocale('en_GB'); // English (United Kingdom)
-setLocale('pt_BR'); // Portuguese (Brazil)
-setLocale('zh_Hans'); // Chinese (Simplified)
-setLocale('zh_Hant'); // Chinese (Traditional)
+setLocale('en_US');   // true; getLocale() → "en-US"
+setLocale('en-GB');   // English (United Kingdom)
+setLocale('pt_BR');   // true; getLocale() → "pt-BR"
+setLocale('zh-Hans'); // Chinese (Simplified)
+setLocale('zh-Hant'); // Chinese (Traditional)
 ```
 
 ---
@@ -187,7 +192,7 @@ function LocalePicker() {
 
 ## Best Practices
 
-1. Set locale once at app startup
-2. Store user preference if app has language switcher
-3. Use `getAvailableLocales()` to verify support
-4. Test RTL locales (Arabic, Hebrew) if needed
+1. You do not have to call `setLocale()` — the device locale is the default
+2. If the app has a language switcher, call `setLocale` once when it changes
+3. Use `getAvailableLocales()` to verify support (`locales.es` is truthy when present)
+4. Test RTL locales (Arabic, Hebrew) if needed; month names stay Gregorian

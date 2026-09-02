@@ -6,6 +6,8 @@
 
 The fastest date library for React Native. Powered by C++ and [Nitro Modules](https://nitro.margelo.com/) with zero-config localization.
 
+v4.0 requires Nitro Modules 0.36.x, React Native 0.81+, iOS 15.1+, and Xcode 16.1+. Parsing, time zones, and arithmetic contracts: [semantics](https://bbernag.github.io/react-native-date/semantics).
+
 [![npm version](https://img.shields.io/npm/v/@bernagl/react-native-date.svg)](https://www.npmjs.com/package/@bernagl/react-native-date)
 [![license](https://img.shields.io/npm/l/@bernagl/react-native-date.svg)](https://github.com/bbernag/react-native-date/blob/main/LICENSE)
 
@@ -19,7 +21,7 @@ npm install @bernagl/react-native-date react-native-nitro-modules@0.36.5
 cd ios && pod install
 ```
 
-**Requirements:** React Native 0.76+ (New Architecture) • Nitro Modules 0.36.x • iOS 13.0+ • Android API 24+
+**Requirements:** React Native **0.81+** (New Architecture) • Nitro Modules 0.36.x (`>=0.36.0 <0.37.0`) • iOS **15.1+** • Xcode **16.1+** • Android API 24+
 
 ## Is this library for you?
 
@@ -82,9 +84,9 @@ Built with C++ and [Nitro Modules](https://nitro.margelo.com/) for synchronous, 
 
 > **Performance gap widens on budget devices:** `format()` is 25x faster on iOS but **54x faster** on low-end Android. The native C++ implementation shines where JavaScript is constrained. Essential for apps targeting emerging markets.
 
-*Benchmarks from the [example app](./packages/native-date/example) Benchmark tab (1,000 iterations). We're actively working on optimizing `addMonths()` to win all 16 benchmarks.*
-
-See [full benchmarks](https://bbernag.github.io/react-native-date/#native-performance) for all operations.
+> **Historical figures — to be re-measured.** Device, OS, RN, Hermes, and Debug vs Release were not recorded with the original run. The current example is RN 0.81.1 / Hermes; the Benchmark tab defaults to **5,000** iterations. Do not treat the numbers as a v4 result.
+>
+> Measure on a named device with the [example app](./packages/example) Benchmark tab. Full tables: [docs site](https://bbernag.github.io/react-native-date/#native-performance).
 
 ### Familiar API
 
@@ -153,19 +155,20 @@ Uses native OS APIs - no JavaScript locale data:
 | iOS | [NSLocale](https://developer.apple.com/documentation/foundation/nslocale), [NSDateFormatter](https://developer.apple.com/documentation/foundation/nsdateformatter) |
 | Android | [java.util.Locale](https://developer.android.com/reference/java/util/Locale), [DateFormatSymbols](https://developer.android.com/reference/java/text/DateFormatSymbols) |
 
-If `setLocale()` is never called, the library uses the device's language automatically.
+If `setLocale()` is never called, the library uses the device's language automatically. There is no `"Locale not set"` error.
 
 ## Documentation
 
 Full documentation available at the [docs site](https://bbernag.github.io/react-native-date/).
 
+- [Semantics](https://bbernag.github.io/react-native-date/semantics) — error policy, parsing, arithmetic, time zones
 - [API Reference](https://bbernag.github.io/react-native-date/api-reference)
 - [Examples](https://bbernag.github.io/react-native-date/examples)
 - [Locales](https://bbernag.github.io/react-native-date/locales)
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for Yarn 4 setup, `test:cpp`, example apps, and the tag-driven release process.
 
 ## License
 

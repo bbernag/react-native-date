@@ -11,6 +11,7 @@ export default defineConfig({
     logo: '/icon.png',
     nav: [
       { text: 'Home', link: '/' },
+      { text: 'Semantics', link: '/semantics' },
       { text: 'Examples', link: '/examples' },
       { text: 'API', link: '/api-reference' }
     ],
@@ -21,6 +22,7 @@ export default defineConfig({
         items: [
           { text: 'Getting Started', link: '/' },
           { text: 'Installation', link: '/#installation' },
+          { text: 'Semantics', link: '/semantics' },
         ]
       },
       {
