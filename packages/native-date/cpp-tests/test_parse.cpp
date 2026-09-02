@@ -245,4 +245,190 @@ TEST_CASE("results are local time") {
     CHECK(parseWithFormat("2024-07-04 12:00", "yyyy-MM-dd HH:mm") == 1720108800000.0); // 16:00Z
 }
 
+TEST_CASE("the whole pattern must be consumed: no prefix parsing (C-05 / CPP-04)") {
+    ScopedTimezone utc("UTC");
+    CHECK(std::isnan(parseWithFormat("1", "yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("2024", "yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("2024-01", "yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("2024-01-15", "yyyy-MM-dd HH:mm")));
+    CHECK(std::isnan(parseWithFormat("2024-01-15", "yyyy-MM-dd HH:mm:ss")));
+    CHECK(std::isnan(parseWithFormat("12/25", "MM/dd/yyyy")));
+    CHECK(std::isnan(parseWithFormat("2024-01-15 12:30", "yyyy-MM-dd HH:mm 'UTC'")));
+    CHECK(std::isnan(parseWithFormat("", "yyyy")));
+}
+
+TEST_CASE("the whole input must be consumed: no trailing suffix") {
+    ScopedTimezone utc("UTC");
+    CHECK(std::isnan(parseWithFormat("2024-01-15garbage", "yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("2024-01-15 ", "yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("2024-01-15T00:00:00", "yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("2024-01-15 xyz", "yyyy-MM-dd SSS")));
+    CHECK(std::isnan(parseWithFormat("2024-01-15 123x", "yyyy-MM-dd SSS")));
+    CHECK(std::isnan(parseWithFormat("x", "")));
+    CHECK(parseWithFormat("", "") == 0.0); // every component keeps its default
+    CHECK(parseWithFormat("2024-01-15 123", "yyyy-MM-dd SSS") == 1705276800123.0);
+}
+
+TEST_CASE("fixed-width tokens require digits in every position") {
+    ScopedTimezone utc("UTC");
+    CHECK(std::isnan(parseWithFormat("abcd-01-15", "yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("2024-0a-15", "yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("2024-01-1x", "yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("2024-1-15", "yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("24-01-15", "yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("1a:00", "HH:mm")));
+    CHECK(std::isnan(parseWithFormat("10:0b", "HH:mm")));
+    CHECK(std::isnan(parseWithFormat("10:00:5", "HH:mm:ss")));
+    CHECK(std::isnan(parseWithFormat("12a", "SSS")));
+    CHECK(std::isnan(parseWithFormat("12", "SSS")));
+    CHECK(parseWithFormat("999", "SSS") == 999.0);
+    CHECK(parseWithFormat("000", "SSS") == 0.0);
+    CHECK(parseWithFormat("9999-12-31", "yyyy-MM-dd") == 253402214400000.0);
+}
+
+TEST_CASE("variable-width tokens read at most two digits (B-03)") {
+    ScopedTimezone utc("UTC");
+    const std::string twentyNines(20, '9');
+    CHECK(std::isnan(parseWithFormat(twentyNines, "M")));
+    CHECK(std::isnan(parseWithFormat(twentyNines, "d")));
+    CHECK(std::isnan(parseWithFormat(twentyNines, "H")));
+    CHECK(std::isnan(parseWithFormat(twentyNines, "h")));
+    CHECK(std::isnan(parseWithFormat(twentyNines, "m")));
+    CHECK(std::isnan(parseWithFormat(twentyNines, "s")));
+    CHECK(std::isnan(parseWithFormat("123/5/24", "M/d/yy")));
+    CHECK(std::isnan(parseWithFormat("3/123/24", "M/d/yy")));
+    CHECK(std::isnan(parseWithFormat("/5/24", "M/d/yy")));      // zero digits
+    CHECK(std::isnan(parseWithFormat("3//24", "M/d/yy")));
+    CHECK(std::isnan(parseWithFormat("13/5/24", "M/d/yy")));    // two digits, out of range
+    CHECK(std::isnan(parseWithFormat("0/5/24", "M/d/yy")));
+    CHECK(std::isnan(parseWithFormat("3/0/24", "M/d/yy")));
+    CHECK(parseWithFormat("12/31/24", "M/d/yy") == 1735603200000.0);
+    CHECK(parseWithFormat("03/05/24", "M/d/yy") == 1709596800000.0); // leading zeros are fine
+    CHECK(parseWithFormat("1:2:3", "H:m:s") == kHour + 2 * kMinute + 3000.0);
+    CHECK(parseWithFormat("23:59:59", "H:m:s") == 23 * kHour + 59 * kMinute + 59000.0);
+    CHECK(std::isnan(parseWithFormat("24:0:0", "H:m:s")));
+    CHECK(std::isnan(parseWithFormat("0:60:0", "H:m:s")));
+    CHECK(std::isnan(parseWithFormat("0:0:60", "H:m:s")));
+}
+
+TEST_CASE("days are validated against the calendar month") {
+    ScopedTimezone utc("UTC");
+    CHECK(parseWithFormat("2024-02-29", "yyyy-MM-dd") == 1709164800000.0);
+    CHECK(parseWithFormat("29/2/24", "d/M/yy") == 1709164800000.0);
+    CHECK(std::isnan(parseWithFormat("2023-02-29", "yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("2024-02-30", "yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("2024-04-31", "yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("31/4/24", "d/M/yy")));
+    CHECK(std::isnan(parseWithFormat("1900-02-29", "yyyy-MM-dd")));
+    CHECK(parseWithFormat("2000-02-29", "yyyy-MM-dd") == 951782400000.0);
+    CHECK(parseWithFormat("31", "d") == 30 * 86400000.0); // default month is January, so 31 is valid
+    CHECK(std::isnan(parseWithFormat("32", "d")));
+}
+
+TEST_CASE("12-hour tokens require 1-12 and default to AM without a marker (C-14)") {
+    ScopedTimezone utc("UTC");
+    CHECK(parseWithFormat("12:00", "hh:mm") == 0.0);               // documented: AM
+    CHECK(parseWithFormat("1:00", "h:mm") == kHour);
+    CHECK(parseWithFormat("11:59", "hh:mm") == 11 * kHour + 59 * kMinute);
+    CHECK(std::isnan(parseWithFormat("13:00", "hh:mm")));
+    CHECK(std::isnan(parseWithFormat("00:00", "hh:mm")));
+    CHECK(std::isnan(parseWithFormat("0:00", "h:mm")));
+    CHECK(std::isnan(parseWithFormat("13:00 PM", "hh:mm A")));
+    CHECK(std::isnan(parseWithFormat("00:00 AM", "hh:mm A")));
+    CHECK(parseWithFormat("12:00 PM", "hh:mm A") == 12 * kHour);
+    CHECK(parseWithFormat("11:00 PM", "hh:mm A") == 23 * kHour);
+    CHECK(parseWithFormat("12:00 AM", "hh:mm A") == 0.0);
+    // 24-hour tokens are unaffected by a marker's presence
+    CHECK(parseWithFormat("13:00", "HH:mm") == 13 * kHour);
+    CHECK(parseWithFormat("00:00", "HH:mm") == 0.0);
+}
+
+TEST_CASE("every AM/PM token accepts every form the formatter emits") {
+    ScopedTimezone utc("UTC");
+    const double onePM = 13 * kHour + 5 * kMinute;
+    const double oneAM = kHour + 5 * kMinute;
+    CHECK(parseWithFormat("1:05 p", "h:mm a") == onePM);
+    CHECK(parseWithFormat("1:05 pm", "h:mm aa") == onePM);
+    CHECK(parseWithFormat("1:05 p.m.", "h:mm aaa") == onePM);
+    CHECK(parseWithFormat("1:05 PM", "h:mm A") == onePM);
+    CHECK(parseWithFormat("1:05 a", "h:mm a") == oneAM);
+    CHECK(parseWithFormat("1:05 am", "h:mm aa") == oneAM);
+    CHECK(parseWithFormat("1:05 a.m.", "h:mm aaa") == oneAM);
+    CHECK(parseWithFormat("1:05 AM", "h:mm A") == oneAM);
+    // cross-acceptance and case-insensitivity
+    CHECK(parseWithFormat("1:05 PM", "h:mm a") == onePM);
+    CHECK(parseWithFormat("1:05 p.m.", "h:mm A") == onePM);
+    CHECK(parseWithFormat("1:05 Pm", "h:mm aa") == onePM);
+    CHECK(parseWithFormat("1:05 P.M.", "h:mm aaa") == onePM);
+    // malformed markers
+    CHECK(std::isnan(parseWithFormat("1:05 p.", "h:mm a")));
+    CHECK(std::isnan(parseWithFormat("1:05 p.m", "h:mm aaa")));
+    CHECK(std::isnan(parseWithFormat("1:05 pmm", "h:mm aa")));
+    CHECK(std::isnan(parseWithFormat("1:05 XM", "h:mm a")));
+    CHECK(std::isnan(parseWithFormat("1:05 ", "h:mm a")));
+    CHECK(std::isnan(parseWithFormat("1:05", "h:mm a")));
+}
+
+TEST_CASE("formatter aliases are accepted: YYYY, YY, DD, D and [literal]") {
+    ScopedTimezone utc("UTC");
+    CHECK(parseWithFormat("2024-03-15", "YYYY-MM-DD") == 1710460800000.0);
+    CHECK(parseWithFormat("15/3/24", "D/M/YY") == 1710460800000.0);
+    CHECK(parseWithFormat("Date: 2024-03-15", "[Date: ]yyyy-MM-dd") == 1710460800000.0);
+    CHECK(parseWithFormat("yyyy 2024", "[yyyy] yyyy") == kJan1_2024);
+    CHECK(std::isnan(parseWithFormat("Time: 2024-03-15", "[Date: ]yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("Date: 2024-03-15", "[Date: ]")));
+    CHECK(parseWithFormat("it's 2024", "'it''s' yyyy") == kJan1_2024);
+    CHECK(parseWithFormat("2024'", "yyyy''") == kJan1_2024);
+}
+
+TEST_CASE("locale name tokens are rejected explicitly") {
+    ScopedTimezone utc("UTC");
+    CHECK(std::isnan(parseWithFormat("Mar 15, 2024", "MMM d, yyyy")));
+    CHECK(std::isnan(parseWithFormat("March 15, 2024", "MMMM d, yyyy")));
+    CHECK(std::isnan(parseWithFormat("Fri 2024-03-15", "EEE yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("Friday 2024-03-15", "EEEE yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("F 2024-03-15", "E yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("Fri 2024-03-15", "ddd yyyy-MM-dd")));
+    CHECK(std::isnan(parseWithFormat("Friday 2024-03-15", "dddd yyyy-MM-dd")));
+}
+
+TEST_CASE("oversized date strings and patterns throw without echoing the input (B-07)") {
+    ScopedTimezone utc("UTC");
+    const std::string longDate = "2024-01-15" + std::string(247, ' '); // 257 chars
+    const std::string atCapDate = "2024-01-15" + std::string(246, ' '); // 256 chars
+    CHECK_THROWS_AS(parseWithFormat(longDate, "yyyy-MM-dd"), std::invalid_argument);
+    CHECK(std::isnan(parseWithFormat(atCapDate, "yyyy-MM-dd"))); // within the cap: ordinary mismatch
+    try {
+        parseWithFormat(longDate, "yyyy-MM-dd");
+        CHECK(false);
+    } catch (const std::invalid_argument& e) {
+        const std::string message = e.what();
+        CHECK(message.find("256") != std::string::npos);
+        CHECK(message.find("2024-01-15") == std::string::npos);
+        CHECK(message.size() < 100);
+    }
+
+    const std::string longPattern = "yyyy-MM-dd" + std::string(119, 'x'); // 129 chars
+    const std::string atCapPattern = "yyyy-MM-dd" + std::string(118, 'x'); // 128 chars
+    CHECK_THROWS_AS(parseWithFormat("2024-01-15", longPattern), std::invalid_argument);
+    CHECK(std::isnan(parseWithFormat("2024-01-15", atCapPattern)));
+    try {
+        parseWithFormat("2024-01-15", longPattern);
+        CHECK(false);
+    } catch (const std::invalid_argument& e) {
+        const std::string message = e.what();
+        CHECK(message.find("128") != std::string::npos);
+        CHECK(message.find("xxxx") == std::string::npos);
+    }
+}
+
+TEST_CASE("literal characters must match exactly and the input may not run out") {
+    ScopedTimezone utc("UTC");
+    CHECK(std::isnan(parseWithFormat("2024-03-15", "yyyy/MM/dd")));
+    CHECK(std::isnan(parseWithFormat("2024-03", "yyyy-MM-")));
+    CHECK(std::isnan(parseWithFormat("2024-03", "yyyy-MM'x'")));
+    CHECK(std::isnan(parseWithFormat("2024-03", "yyyy-MM[x]")));
+    CHECK(parseWithFormat("2024-03-15T10:20:30.123Z", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'") == 1710498030123.0);
+}
+
 } // TEST_SUITE

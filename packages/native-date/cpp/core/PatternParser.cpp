@@ -1,232 +1,314 @@
 #include "PatternParser.hpp"
 
 #include "Civil.hpp"
-#include "Digits.hpp"
 
+#include <cstddef>
 #include <limits>
+#include <stdexcept>
 
 namespace nativedate::core {
 
+namespace {
+
+constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+
+// Input caps (B-07): parsing runs synchronously on the JS thread, so bound the
+// work. Both are far above any realistic date string or pattern.
+constexpr std::size_t kMaxDateStringLength = 256;
+constexpr std::size_t kMaxPatternLength = 128;
+
+inline bool isAsciiDigit(char c) {
+    return c >= '0' && c <= '9';
+}
+
+inline char toLowerAscii(char c) {
+    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + ('a' - 'A')) : c;
+}
+
+// Read exactly `count` digits at `s[pos]`, advancing `pos`. Fails when the
+// input is too short or a non-digit is found.
+bool readFixedDigits(const std::string& s, std::size_t& pos, std::size_t count, int& out) {
+    if (pos + count > s.size()) return false;
+    int value = 0;
+    for (std::size_t i = 0; i < count; ++i) {
+        const char c = s[pos + i];
+        if (!isAsciiDigit(c)) return false;
+        value = value * 10 + (c - '0');
+    }
+    out = value;
+    pos += count;
+    return true;
+}
+
+// Read 1..`maxDigits` digits at `s[pos]`, advancing `pos`. Fails on zero digits
+// and when a digit follows the last permitted one ("999" for a 2-digit token),
+// so a run of digits can never silently overflow (B-03).
+bool readVariableDigits(const std::string& s, std::size_t& pos, std::size_t maxDigits, int& out) {
+    int value = 0;
+    std::size_t digits = 0;
+    while (pos < s.size() && isAsciiDigit(s[pos])) {
+        if (digits == maxDigits) return false;
+        value = value * 10 + (s[pos] - '0');
+        digits++;
+        pos++;
+    }
+    if (digits == 0) return false;
+    out = value;
+    return true;
+}
+
+// Match an AM/PM marker in any of the forms the formatter emits:
+// "a"/"p" (`a`), "am"/"pm" (`aa`), "a.m."/"p.m." (`aaa`), "AM"/"PM" (`A`),
+// case-insensitively. Every marker token accepts every form.
+bool readAmPm(const std::string& s, std::size_t& pos, bool& isPM) {
+    if (pos >= s.size()) return false;
+    const char first = toLowerAscii(s[pos]);
+    if (first != 'a' && first != 'p') return false;
+    isPM = (first == 'p');
+    pos++;
+    if (pos < s.size() && s[pos] == '.') {
+        // "a.m." / "p.m."
+        if (pos + 2 < s.size() && toLowerAscii(s[pos + 1]) == 'm' && s[pos + 2] == '.') {
+            pos += 3;
+            return true;
+        }
+        return false;
+    }
+    if (pos < s.size() && toLowerAscii(s[pos]) == 'm') {
+        pos++;
+    }
+    return true;
+}
+
+// Number of consecutive occurrences of `c` at `pattern[pos]`, capped at `max`.
+std::size_t runLength(const std::string& pattern, std::size_t pos, char c, std::size_t max) {
+    std::size_t n = 0;
+    while (n < max && pos + n < pattern.size() && pattern[pos + n] == c) {
+        n++;
+    }
+    return n;
+}
+
+} // namespace
+
+// Token table (mirrors Formatter.cpp; parsing needs no locale, so the name
+// tokens the formatter emits are rejected rather than guessed):
+//
+//   yyyy YYYY  4-digit year (0000-9999)      hh h   hour 01-12 (2 / 1-2 digits)
+//   yy   YY    2-digit year (70-99 → 19xx,   mm m   minute 00-59
+//              00-69 → 20xx)                 ss s   second 00-59
+//   MM   M     month 01-12                   SSS    millisecond 000-999
+//   dd   DD    day 01..daysInMonth           a aa aaa A  AM/PM marker
+//   d    D     day 1..daysInMonth (1-2 dig.) 'text' [text] ''  literals
+//   HH   H     hour 00-23
+//   MMM MMMM ddd dddd E EE EEE EEEE  → not supported: NaN
+//   any other character                → must match the input literally
+//
+// Rules:
+// - Fixed-width tokens (`yyyy`, `MM`, `dd`, `HH`, `hh`, `mm`, `ss`, `SSS`, ...)
+//   require exactly that many digits. Variable-width tokens (`M`, `d`, `H`,
+//   `h`, `m`, `s`) read one or two digits and fail if a third follows (B-03).
+// - The whole pattern AND the whole input must be consumed; a trailing suffix
+//   or a truncated input yields NaN. No prefix parsing (C-05). Components whose
+//   token the pattern omits keep their default (1970-01-01 00:00:00.000).
+// - `hh`/`h` require 1-12. When no `a`/`A` marker appears the hour is taken as
+//   AM (12 → 00), matching date-fns (C-14).
+// - The result is local wall-clock time; there is no zone/offset token.
 double parseWithFormat(const std::string& dateString, const std::string& pattern) {
-    // Parse a date string using a custom format pattern
-    // Supported tokens: yyyy, yy, MM, M, dd, d, HH, H, hh, h, mm, m, ss, s, SSS, a, A
+    if (dateString.size() > kMaxDateStringLength) {
+        throw std::invalid_argument("parseFormat: date string longer than 256 characters");
+    }
+    if (pattern.size() > kMaxPatternLength) {
+        throw std::invalid_argument("parseFormat: pattern longer than 128 characters");
+    }
 
     InternalDateComponents dc = {1970, 1, 1, 0, 0, 0, 0, 0};
     bool hasHour12 = false;
     bool isPM = false;
 
-    size_t datePos = 0;
-    size_t patternPos = 0;
-    const size_t dateLen = dateString.length();
-    const size_t patternLen = pattern.length();
+    std::size_t datePos = 0;
+    std::size_t patternPos = 0;
+    const std::size_t dateLen = dateString.length();
+    const std::size_t patternLen = pattern.length();
 
-    while (patternPos < patternLen && datePos < dateLen) {
-        char c = pattern[patternPos];
-        size_t remaining = patternLen - patternPos;
+    while (patternPos < patternLen) {
+        const char c = pattern[patternPos];
+        const std::size_t remaining = patternLen - patternPos;
 
-        // Handle escaped text with single quotes
+        // Escaped text with brackets [text] (dayjs style)
+        if (c == '[') {
+            patternPos++;
+            while (patternPos < patternLen && pattern[patternPos] != ']') {
+                if (datePos >= dateLen || dateString[datePos] != pattern[patternPos]) return kNaN;
+                datePos++;
+                patternPos++;
+            }
+            if (patternPos < patternLen) patternPos++; // closing ']'
+            continue;
+        }
+
+        // Escaped text with single quotes 'text' (date-fns style); '' is a literal quote
         if (c == '\'') {
             patternPos++;
             if (patternPos < patternLen && pattern[patternPos] == '\'') {
-                // Escaped single quote
-                if (dateString[datePos] != '\'') return std::numeric_limits<double>::quiet_NaN();
+                if (datePos >= dateLen || dateString[datePos] != '\'') return kNaN;
                 datePos++;
                 patternPos++;
                 continue;
             }
-            // Skip until closing quote
-            while (patternPos < patternLen && datePos < dateLen) {
+            while (patternPos < patternLen) {
                 if (pattern[patternPos] == '\'') {
+                    if (patternPos + 1 < patternLen && pattern[patternPos + 1] == '\'') {
+                        if (datePos >= dateLen || dateString[datePos] != '\'') return kNaN;
+                        datePos++;
+                        patternPos += 2;
+                        continue;
+                    }
                     patternPos++;
                     break;
                 }
-                if (dateString[datePos] != pattern[patternPos]) {
-                    return std::numeric_limits<double>::quiet_NaN();
-                }
+                if (datePos >= dateLen || dateString[datePos] != pattern[patternPos]) return kNaN;
                 datePos++;
                 patternPos++;
             }
             continue;
         }
 
-        // Try to match tokens
         bool matched = false;
 
-        // yyyy - 4 digit year
-        if (remaining >= 4 && pattern.substr(patternPos, 4) == "yyyy") {
-            if (datePos + 4 > dateLen) return std::numeric_limits<double>::quiet_NaN();
-            dc.year = parse4Digits(dateString.c_str() + datePos);
-            datePos += 4;
+        // yyyy / YYYY - 4 digit year
+        if (remaining >= 4 && (pattern.substr(patternPos, 4) == "yyyy" || pattern.substr(patternPos, 4) == "YYYY")) {
+            if (!readFixedDigits(dateString, datePos, 4, dc.year)) return kNaN;
             patternPos += 4;
             matched = true;
         }
-        // yy - 2 digit year
-        else if (remaining >= 2 && pattern.substr(patternPos, 2) == "yy") {
-            if (datePos + 2 > dateLen) return std::numeric_limits<double>::quiet_NaN();
-            int year2 = parse2Digits(dateString.c_str() + datePos);
+        // yy / YY - 2 digit year
+        else if (remaining >= 2 && (pattern.substr(patternPos, 2) == "yy" || pattern.substr(patternPos, 2) == "YY")) {
+            int year2 = 0;
+            if (!readFixedDigits(dateString, datePos, 2, year2)) return kNaN;
             dc.year = (year2 >= 70) ? 1900 + year2 : 2000 + year2;
-            datePos += 2;
             patternPos += 2;
             matched = true;
         }
+        // MMM / MMMM - month names need a locale: unsupported
+        else if (remaining >= 3 && pattern.substr(patternPos, 3) == "MMM") {
+            return kNaN;
+        }
         // MM - 2 digit month
         else if (remaining >= 2 && pattern.substr(patternPos, 2) == "MM") {
-            if (datePos + 2 > dateLen) return std::numeric_limits<double>::quiet_NaN();
-            dc.month = parse2Digits(dateString.c_str() + datePos);
-            datePos += 2;
+            if (!readFixedDigits(dateString, datePos, 2, dc.month)) return kNaN;
             patternPos += 2;
             matched = true;
         }
         // M - 1-2 digit month
-        else if (c == 'M' && (remaining < 2 || pattern[patternPos + 1] != 'M')) {
-            int month = 0;
-            while (datePos < dateLen && dateString[datePos] >= '0' && dateString[datePos] <= '9') {
-                month = month * 10 + (dateString[datePos] - '0');
-                datePos++;
-            }
-            dc.month = month;
+        else if (c == 'M') {
+            if (!readVariableDigits(dateString, datePos, 2, dc.month)) return kNaN;
             patternPos++;
             matched = true;
         }
-        // dd - 2 digit day
-        else if (remaining >= 2 && pattern.substr(patternPos, 2) == "dd") {
-            if (datePos + 2 > dateLen) return std::numeric_limits<double>::quiet_NaN();
-            dc.day = parse2Digits(dateString.c_str() + datePos);
-            datePos += 2;
+        // ddd / dddd - weekday names: unsupported
+        else if (remaining >= 3 && pattern.substr(patternPos, 3) == "ddd") {
+            return kNaN;
+        }
+        // dd / DD - 2 digit day
+        else if (remaining >= 2 && (pattern.substr(patternPos, 2) == "dd" || pattern.substr(patternPos, 2) == "DD")) {
+            if (!readFixedDigits(dateString, datePos, 2, dc.day)) return kNaN;
             patternPos += 2;
             matched = true;
         }
-        // d - 1-2 digit day
-        else if (c == 'd' && (remaining < 2 || pattern[patternPos + 1] != 'd')) {
-            int day = 0;
-            while (datePos < dateLen && dateString[datePos] >= '0' && dateString[datePos] <= '9') {
-                day = day * 10 + (dateString[datePos] - '0');
-                datePos++;
-            }
-            dc.day = day;
+        // d / D - 1-2 digit day
+        else if (c == 'd' || c == 'D') {
+            if (!readVariableDigits(dateString, datePos, 2, dc.day)) return kNaN;
             patternPos++;
             matched = true;
         }
+        // E.. - weekday names: unsupported
+        else if (c == 'E') {
+            return kNaN;
+        }
         // HH - 2 digit hour (24h)
         else if (remaining >= 2 && pattern.substr(patternPos, 2) == "HH") {
-            if (datePos + 2 > dateLen) return std::numeric_limits<double>::quiet_NaN();
-            dc.hour = parse2Digits(dateString.c_str() + datePos);
-            datePos += 2;
+            if (!readFixedDigits(dateString, datePos, 2, dc.hour)) return kNaN;
             patternPos += 2;
             matched = true;
         }
         // H - 1-2 digit hour (24h)
-        else if (c == 'H' && (remaining < 2 || pattern[patternPos + 1] != 'H')) {
-            int hour = 0;
-            while (datePos < dateLen && dateString[datePos] >= '0' && dateString[datePos] <= '9') {
-                hour = hour * 10 + (dateString[datePos] - '0');
-                datePos++;
-            }
-            dc.hour = hour;
+        else if (c == 'H') {
+            if (!readVariableDigits(dateString, datePos, 2, dc.hour)) return kNaN;
             patternPos++;
             matched = true;
         }
         // hh - 2 digit hour (12h)
         else if (remaining >= 2 && pattern.substr(patternPos, 2) == "hh") {
-            if (datePos + 2 > dateLen) return std::numeric_limits<double>::quiet_NaN();
-            dc.hour = parse2Digits(dateString.c_str() + datePos);
+            if (!readFixedDigits(dateString, datePos, 2, dc.hour)) return kNaN;
             hasHour12 = true;
-            datePos += 2;
             patternPos += 2;
             matched = true;
         }
         // h - 1-2 digit hour (12h)
-        else if (c == 'h' && (remaining < 2 || pattern[patternPos + 1] != 'h')) {
-            int hour = 0;
-            while (datePos < dateLen && dateString[datePos] >= '0' && dateString[datePos] <= '9') {
-                hour = hour * 10 + (dateString[datePos] - '0');
-                datePos++;
-            }
-            dc.hour = hour;
+        else if (c == 'h') {
+            if (!readVariableDigits(dateString, datePos, 2, dc.hour)) return kNaN;
             hasHour12 = true;
             patternPos++;
             matched = true;
         }
         // mm - 2 digit minute
         else if (remaining >= 2 && pattern.substr(patternPos, 2) == "mm") {
-            if (datePos + 2 > dateLen) return std::numeric_limits<double>::quiet_NaN();
-            dc.minute = parse2Digits(dateString.c_str() + datePos);
-            datePos += 2;
+            if (!readFixedDigits(dateString, datePos, 2, dc.minute)) return kNaN;
             patternPos += 2;
             matched = true;
         }
-        // m - 1-2 digit minute (only if not followed by another m)
-        else if (c == 'm' && (remaining < 2 || pattern[patternPos + 1] != 'm')) {
-            int minute = 0;
-            while (datePos < dateLen && dateString[datePos] >= '0' && dateString[datePos] <= '9') {
-                minute = minute * 10 + (dateString[datePos] - '0');
-                datePos++;
-            }
-            dc.minute = minute;
+        // m - 1-2 digit minute
+        else if (c == 'm') {
+            if (!readVariableDigits(dateString, datePos, 2, dc.minute)) return kNaN;
             patternPos++;
             matched = true;
         }
         // ss - 2 digit second
         else if (remaining >= 2 && pattern.substr(patternPos, 2) == "ss") {
-            if (datePos + 2 > dateLen) return std::numeric_limits<double>::quiet_NaN();
-            dc.second = parse2Digits(dateString.c_str() + datePos);
-            datePos += 2;
+            if (!readFixedDigits(dateString, datePos, 2, dc.second)) return kNaN;
             patternPos += 2;
             matched = true;
         }
         // s - 1-2 digit second
-        else if (c == 's' && (remaining < 2 || pattern[patternPos + 1] != 's')) {
-            int second = 0;
-            while (datePos < dateLen && dateString[datePos] >= '0' && dateString[datePos] <= '9') {
-                second = second * 10 + (dateString[datePos] - '0');
-                datePos++;
-            }
-            dc.second = second;
+        else if (c == 's') {
+            if (!readVariableDigits(dateString, datePos, 2, dc.second)) return kNaN;
             patternPos++;
             matched = true;
         }
         // SSS - 3 digit millisecond
         else if (remaining >= 3 && pattern.substr(patternPos, 3) == "SSS") {
-            if (datePos + 3 > dateLen) return std::numeric_limits<double>::quiet_NaN();
-            dc.millisecond = (dateString[datePos] - '0') * 100 +
-                             (dateString[datePos + 1] - '0') * 10 +
-                             (dateString[datePos + 2] - '0');
-            datePos += 3;
+            if (!readFixedDigits(dateString, datePos, 3, dc.millisecond)) return kNaN;
             patternPos += 3;
             matched = true;
         }
-        // A or a - AM/PM marker
-        else if (c == 'A' || c == 'a') {
-            // Match AM/PM in various forms
-            char first = dateString[datePos];
-            if (first == 'P' || first == 'p') {
-                isPM = true;
-            } else if (first == 'A' || first == 'a') {
-                isPM = false;
-            } else {
-                return std::numeric_limits<double>::quiet_NaN();
-            }
-            datePos++;
-            // Skip optional 'M' or 'm'
-            if (datePos < dateLen && (dateString[datePos] == 'M' || dateString[datePos] == 'm')) {
-                datePos++;
-            }
+        // A - AM/PM marker (one token per character)
+        else if (c == 'A') {
+            if (!readAmPm(dateString, datePos, isPM)) return kNaN;
             patternPos++;
+            matched = true;
+        }
+        // a / aa / aaa - AM/PM marker
+        else if (c == 'a') {
+            if (!readAmPm(dateString, datePos, isPM)) return kNaN;
+            patternPos += runLength(pattern, patternPos, 'a', 3);
             matched = true;
         }
 
         // No token matched - expect literal character match
         if (!matched) {
-            if (dateString[datePos] != pattern[patternPos]) {
-                return std::numeric_limits<double>::quiet_NaN();
-            }
+            if (datePos >= dateLen || dateString[datePos] != c) return kNaN;
             datePos++;
             patternPos++;
         }
     }
 
-    // Convert 12-hour to 24-hour if needed
+    // The whole input must be consumed (no prefix parsing)
+    if (datePos != dateLen) return kNaN;
+
+    // Convert 12-hour to 24-hour; without a marker the hour is AM
     if (hasHour12) {
+        if (dc.hour < 1 || dc.hour > 12) return kNaN;
         if (isPM && dc.hour != 12) {
             dc.hour += 12;
         } else if (!isPM && dc.hour == 12) {
@@ -235,11 +317,12 @@ double parseWithFormat(const std::string& dateString, const std::string& pattern
     }
 
     // Validate components
-    if (dc.month < 1 || dc.month > 12) return std::numeric_limits<double>::quiet_NaN();
-    if (dc.day < 1 || dc.day > 31) return std::numeric_limits<double>::quiet_NaN();
-    if (dc.hour < 0 || dc.hour > 23) return std::numeric_limits<double>::quiet_NaN();
-    if (dc.minute < 0 || dc.minute > 59) return std::numeric_limits<double>::quiet_NaN();
-    if (dc.second < 0 || dc.second > 59) return std::numeric_limits<double>::quiet_NaN();
+    if (dc.month < 1 || dc.month > 12) return kNaN;
+    if (dc.day < 1 || dc.day > daysInMonth(dc.year, dc.month)) return kNaN;
+    if (dc.hour < 0 || dc.hour > 23) return kNaN;
+    if (dc.minute < 0 || dc.minute > 59) return kNaN;
+    if (dc.second < 0 || dc.second > 59) return kNaN;
+    if (dc.millisecond < 0 || dc.millisecond > 999) return kNaN;
 
     // No timezone in format patterns - interpret as local time (like date-fns)
     return componentsToTimestampLocal(dc);
