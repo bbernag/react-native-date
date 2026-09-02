@@ -1,8 +1,11 @@
 #pragma once
 
+#include "core/LocaleCache.hpp"
+#include "core/Providers.hpp"
+
+#include <memory>
 #include <string>
 #include <vector>
-#include <mutex>
 
 namespace margelo::nitro::rnpackages_nativedate {
 
@@ -18,42 +21,27 @@ struct LocaleInfoData {
 };
 
 /**
- * Cached locale strings for fast lookup
- * Loaded once per locale, invalidated on setLocale()
- */
-struct LocaleCache {
-    bool loaded = false;
-    std::string localeCode;
-
-    // Month names (index 0-11 for months 1-12)
-    std::vector<std::string> monthNames;        // January, February, ...
-    std::vector<std::string> monthNamesShort;   // Jan, Feb, ...
-    std::vector<std::string> monthMinimal;      // J, F, M, ...
-
-    // Day names (index 0-6, Sunday=0)
-    std::vector<std::string> dayNames;          // Sunday, Monday, ...
-    std::vector<std::string> dayNamesShort;     // Sun, Mon, ...
-    std::vector<std::string> dayVeryShort;      // Su, Mo, ...
-    std::vector<std::string> dayMinimal;        // S, M, T, ...
-};
-
-/**
  * Platform-specific locale helper for localized date names
- * Uses NSDateFormatter on iOS and DateFormatSymbols on Android
- * Caches strings for fast repeated lookups (~1000x faster than bridge calls)
+ * Uses NSDateFormatter on iOS and android.icu DateFormatSymbols on Android.
+ *
+ * Names live in an immutable `LocaleCache` snapshot held by a `LocaleStore`.
+ * On first use, if `setLocale()` was never called, the device locale is loaded
+ * (outside the lock) and installed; `setLocale()` builds a fresh snapshot and
+ * swaps it in. Readers index the snapshot they hold, so a concurrent
+ * `setLocale()` can never invalidate what they read.
  */
 class LocaleHelper {
 public:
     /**
-     * Get the current locale code
-     * @return Locale code (e.g., "en", "es", "fr")
+     * Get the effective locale code: the one passed to `setLocale()`, or the
+     * device language (e.g. "en", "es") when nothing was set.
      */
     static std::string getCurrentLocale();
 
     /**
      * Set the locale for date formatting
-     * @param locale Locale code (e.g., "en", "es", "fr")
-     * @return true if the locale was set successfully
+     * @param locale Locale code (e.g., "en", "es", "pt-BR"; "pt_BR" is accepted too)
+     * @return true if the locale is available on the device and its names loaded
      */
     static bool setLocale(const std::string& locale);
 
@@ -73,39 +61,18 @@ public:
     /**
      * Get localized month name
      * @param month Month number (1-12)
-     * @param abbreviated If true, return abbreviated name (Jan vs January)
-     * @return Localized month name
+     * @param form Name length; `Short` falls back to `Abbreviated` for months
+     * @return Localized month name; empty when out of range or no locale could be loaded
      */
-    static std::string getMonthName(int month, bool abbreviated);
+    static std::string monthName(int month, nativedate::core::NameForm form);
 
     /**
      * Get localized day name
      * @param dayOfWeek Day of week (0 = Sunday, 6 = Saturday)
-     * @param abbreviated If true, return abbreviated name (Sun vs Sunday)
-     * @return Localized day name
+     * @param form Name length
+     * @return Localized day name; empty when out of range or no locale could be loaded
      */
-    static std::string getDayName(int dayOfWeek, bool abbreviated);
-
-    /**
-     * Get very short/minimal localized day name (e.g., "S", "M", "T")
-     * @param dayOfWeek Day of week (0 = Sunday, 6 = Saturday)
-     * @return Single letter or very short day name
-     */
-    static std::string getDayMinimal(int dayOfWeek);
-
-    /**
-     * Get very short localized day name (e.g., "Su", "Mo", "Tu")
-     * @param dayOfWeek Day of week (0 = Sunday, 6 = Saturday)
-     * @return Two-letter day name
-     */
-    static std::string getDayVeryShort(int dayOfWeek);
-
-    /**
-     * Get very short/minimal localized month name (e.g., "J", "F", "M")
-     * @param month Month number (1-12)
-     * @return Single letter month name
-     */
-    static std::string getMonthMinimal(int month);
+    static std::string dayName(int dayOfWeek, nativedate::core::NameForm form);
 
     /**
      * Get display name for a locale code (in English)
@@ -128,21 +95,30 @@ public:
     static std::vector<LocaleInfoData> getAvailableLocalesInfo();
 
 private:
-    // Cache storage
-    static LocaleCache cache;
-    static std::mutex cacheMutex;
+    static nativedate::core::LocaleStore store_;
+
+    /** Current snapshot, loading the device locale on first use. May be nullptr if loading failed. */
+    static std::shared_ptr<const nativedate::core::LocaleCache> names();
 
     /**
-     * Check if locale has been set (cache is loaded)
-     * @throws std::runtime_error if setLocale() was not called
+     * Platform-specific loading of the device locale's names (implemented in .mm/.cpp).
+     * Runs with no lock held; returns nullptr when the platform cannot supply them.
      */
-    static void requireLocaleSet();
-
-    /**
-     * Platform-specific cache loading (implemented in .mm/.cpp)
-     * Loads all month and day names in bulk for efficiency
-     */
-    static void loadCacheFromPlatform();
+    static std::shared_ptr<const nativedate::core::LocaleCache> loadDefaultFromPlatform();
 };
+
+inline std::shared_ptr<const nativedate::core::LocaleCache> LocaleHelper::names() {
+    return store_.snapshot(&LocaleHelper::loadDefaultFromPlatform);
+}
+
+inline std::string LocaleHelper::monthName(int month, nativedate::core::NameForm form) {
+    const auto snapshot = names();
+    return snapshot ? std::string(snapshot->monthName(month, form)) : std::string();
+}
+
+inline std::string LocaleHelper::dayName(int dayOfWeek, nativedate::core::NameForm form) {
+    const auto snapshot = names();
+    return snapshot ? std::string(snapshot->dayName(dayOfWeek, form)) : std::string();
+}
 
 } // namespace margelo::nitro::rnpackages_nativedate

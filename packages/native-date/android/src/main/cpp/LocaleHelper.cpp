@@ -1,32 +1,42 @@
 #include "LocaleHelper.hpp"
 #include <jni.h>
 #include <android/log.h>
-#include <algorithm>
-#include <stdexcept>
+#include <optional>
+#include <set>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 #define LOG_TAG "NativeDate"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 namespace margelo::nitro::rnpackages_nativedate {
 
-// Static member definitions
-LocaleCache LocaleHelper::cache;
-std::mutex LocaleHelper::cacheMutex;
+using nativedate::core::isSafeLocaleTag;
+using nativedate::core::keepPrefix;
+using nativedate::core::LocaleCache;
+using nativedate::core::localeIdsEqual;
+using nativedate::core::LocaleNameLists;
+using nativedate::core::LocaleStore;
+using nativedate::core::makeLocaleCache;
+using nativedate::core::normalizeLocaleId;
+using nativedate::core::utf8FromUtf16;
+
+LocaleStore LocaleHelper::store_;
 
 // Store JavaVM reference (set during JNI_OnLoad)
 static JavaVM* g_jvm = nullptr;
-
-// Current locale code (empty = system default)
-static std::string g_currentLocale = "";
-static std::mutex g_localeMutex;
 
 // Call this from JNI_OnLoad
 extern "C" void LocaleHelper_setJavaVM(JavaVM* vm) {
     g_jvm = vm;
 }
 
+namespace {
+
 // Get JNIEnv for current thread
-static JNIEnv* getJNIEnv() {
+JNIEnv* getJNIEnv() {
     if (g_jvm == nullptr) {
         LOGE("JavaVM not initialized for LocaleHelper");
         return nullptr;
@@ -48,556 +58,523 @@ static JNIEnv* getJNIEnv() {
     return env;
 }
 
-// Get Java Locale object for current setting
-static jobject getJavaLocale(JNIEnv* env) {
-    std::lock_guard<std::mutex> lock(g_localeMutex);
-
-    jclass localeClass = env->FindClass("java/util/Locale");
-
-    if (g_currentLocale.empty()) {
-        // Return default locale
-        jmethodID getDefaultMethod = env->GetStaticMethodID(localeClass, "getDefault", "()Ljava/util/Locale;");
-        jobject locale = env->CallStaticObjectMethod(localeClass, getDefaultMethod);
-        env->DeleteLocalRef(localeClass);
-        return locale;
+// True (and the exception cleared) when a Java exception is pending after `what`.
+bool clearException(JNIEnv* env, const char* what) {
+    if (env->ExceptionCheck() == JNI_FALSE) {
+        return false;
     }
-
-    // Create locale from language code
-    jmethodID forLanguageTagMethod = env->GetStaticMethodID(localeClass, "forLanguageTag", "(Ljava/lang/String;)Ljava/util/Locale;");
-    jstring langTag = env->NewStringUTF(g_currentLocale.c_str());
-    jobject locale = env->CallStaticObjectMethod(localeClass, forLanguageTagMethod, langTag);
-
-    env->DeleteLocalRef(langTag);
-    env->DeleteLocalRef(localeClass);
-
-    return locale;
+    env->ExceptionClear();
+    LOGE("LocaleHelper: Java exception during %s", what);
+    return true;
 }
 
-void LocaleHelper::requireLocaleSet() {
-    std::lock_guard<std::mutex> lock(cacheMutex);
-    if (!cache.loaded) {
-        throw std::runtime_error("Locale not set. Call setLocale() before using locale-dependent functions.");
+// Pops a JNI local frame on scope exit so every early return releases its local refs.
+class LocalFrame {
+public:
+    LocalFrame(JNIEnv* env, jint capacity)
+        : env_(env), pushed_(env != nullptr && env->PushLocalFrame(capacity) == JNI_OK) {
+        if (env != nullptr && !pushed_) {
+            clearException(env, "PushLocalFrame");
+        }
     }
+    ~LocalFrame() {
+        if (pushed_) {
+            env_->PopLocalFrame(nullptr);
+        }
+    }
+    LocalFrame(const LocalFrame&) = delete;
+    LocalFrame& operator=(const LocalFrame&) = delete;
+
+    /** Whether the env is usable and the frame was pushed. */
+    bool ok() const { return pushed_; }
+
+private:
+    JNIEnv* env_;
+    bool pushed_;
+};
+
+jclass findClass(JNIEnv* env, const char* name) {
+    jclass cls = env->FindClass(name);
+    if (clearException(env, name) || cls == nullptr) {
+        return nullptr;
+    }
+    return cls;
 }
 
-void LocaleHelper::loadCacheFromPlatform() {
-    JNIEnv* env = getJNIEnv();
-    if (env == nullptr) {
-        LOGE("Cannot load cache: JNI environment not available");
-        return;
+jmethodID findMethod(JNIEnv* env, jclass cls, const char* name, const char* signature) {
+    jmethodID method = env->GetMethodID(cls, name, signature);
+    if (clearException(env, name) || method == nullptr) {
+        return nullptr;
     }
-
-    jobject locale = getJavaLocale(env);
-
-    jclass dfsClass = env->FindClass("java/text/DateFormatSymbols");
-    jmethodID dfsConstructor = env->GetMethodID(dfsClass, "<init>", "(Ljava/util/Locale;)V");
-    jmethodID getMonthsMethod = env->GetMethodID(dfsClass, "getMonths", "()[Ljava/lang/String;");
-    jmethodID getShortMonthsMethod = env->GetMethodID(dfsClass, "getShortMonths", "()[Ljava/lang/String;");
-    jmethodID getWeekdaysMethod = env->GetMethodID(dfsClass, "getWeekdays", "()[Ljava/lang/String;");
-    jmethodID getShortWeekdaysMethod = env->GetMethodID(dfsClass, "getShortWeekdays", "()[Ljava/lang/String;");
-
-    jobject dfs = env->NewObject(dfsClass, dfsConstructor, locale);
-
-    // Load month names
-    cache.monthNames.clear();
-    cache.monthNamesShort.clear();
-    cache.monthMinimal.clear();
-    cache.monthNames.reserve(12);
-    cache.monthNamesShort.reserve(12);
-    cache.monthMinimal.reserve(12);
-
-    jobjectArray months = (jobjectArray)env->CallObjectMethod(dfs, getMonthsMethod);
-    jobjectArray monthsShort = (jobjectArray)env->CallObjectMethod(dfs, getShortMonthsMethod);
-
-    for (int i = 0; i < 12; i++) {
-        jstring monthFull = (jstring)env->GetObjectArrayElement(months, i);
-        jstring monthShort = (jstring)env->GetObjectArrayElement(monthsShort, i);
-
-        const char* fullStr = env->GetStringUTFChars(monthFull, nullptr);
-        const char* shortStr = env->GetStringUTFChars(monthShort, nullptr);
-
-        cache.monthNames.push_back(std::string(fullStr));
-        cache.monthNamesShort.push_back(std::string(shortStr));
-        // Minimal: first character of short name
-        std::string shortName(shortStr);
-        cache.monthMinimal.push_back(shortName.empty() ? "" : shortName.substr(0, 1));
-
-        env->ReleaseStringUTFChars(monthFull, fullStr);
-        env->ReleaseStringUTFChars(monthShort, shortStr);
-        env->DeleteLocalRef(monthFull);
-        env->DeleteLocalRef(monthShort);
-    }
-    env->DeleteLocalRef(months);
-    env->DeleteLocalRef(monthsShort);
-
-    // Load day names (Java: index 1=Sunday, we need index 0=Sunday)
-    cache.dayNames.clear();
-    cache.dayNamesShort.clear();
-    cache.dayVeryShort.clear();
-    cache.dayMinimal.clear();
-    cache.dayNames.reserve(7);
-    cache.dayNamesShort.reserve(7);
-    cache.dayVeryShort.reserve(7);
-    cache.dayMinimal.reserve(7);
-
-    jobjectArray days = (jobjectArray)env->CallObjectMethod(dfs, getWeekdaysMethod);
-    jobjectArray daysShort = (jobjectArray)env->CallObjectMethod(dfs, getShortWeekdaysMethod);
-
-    // Java weekdays array: index 0 is empty, 1=Sunday, 7=Saturday
-    for (int i = 1; i <= 7; i++) {
-        jstring dayFull = (jstring)env->GetObjectArrayElement(days, i);
-        jstring dayShort = (jstring)env->GetObjectArrayElement(daysShort, i);
-
-        const char* fullStr = env->GetStringUTFChars(dayFull, nullptr);
-        const char* shortStr = env->GetStringUTFChars(dayShort, nullptr);
-
-        std::string fullName(fullStr);
-        std::string shortName(shortStr);
-
-        cache.dayNames.push_back(fullName);
-        cache.dayNamesShort.push_back(shortName);
-        // Minimal: first character
-        cache.dayMinimal.push_back(shortName.empty() ? "" : shortName.substr(0, 1));
-        // VeryShort: first 2 characters
-        cache.dayVeryShort.push_back(shortName.length() > 2 ? shortName.substr(0, 2) : shortName);
-
-        env->ReleaseStringUTFChars(dayFull, fullStr);
-        env->ReleaseStringUTFChars(dayShort, shortStr);
-        env->DeleteLocalRef(dayFull);
-        env->DeleteLocalRef(dayShort);
-    }
-    env->DeleteLocalRef(days);
-    env->DeleteLocalRef(daysShort);
-
-    env->DeleteLocalRef(dfs);
-    env->DeleteLocalRef(dfsClass);
-    env->DeleteLocalRef(locale);
+    return method;
 }
 
-std::string LocaleHelper::getCurrentLocale() {
-    std::lock_guard<std::mutex> lock(g_localeMutex);
-
-    if (!g_currentLocale.empty()) {
-        return g_currentLocale;
+jmethodID findStaticMethod(JNIEnv* env, jclass cls, const char* name, const char* signature) {
+    jmethodID method = env->GetStaticMethodID(cls, name, signature);
+    if (clearException(env, name) || method == nullptr) {
+        return nullptr;
     }
+    return method;
+}
 
-    // Get system default locale
-    JNIEnv* env = getJNIEnv();
-    if (env == nullptr) {
-        return "en";
+template <typename... Args>
+jobject callObject(JNIEnv* env, jobject receiver, jmethodID method, Args... args) {
+    jobject result = env->CallObjectMethod(receiver, method, args...);
+    return clearException(env, "CallObjectMethod") ? nullptr : result;
+}
+
+template <typename... Args>
+jobject callStaticObject(JNIEnv* env, jclass cls, jmethodID method, Args... args) {
+    jobject result = env->CallStaticObjectMethod(cls, method, args...);
+    return clearException(env, "CallStaticObjectMethod") ? nullptr : result;
+}
+
+template <typename... Args>
+jobject newObject(JNIEnv* env, jclass cls, jmethodID constructor, Args... args) {
+    jobject result = env->NewObject(cls, constructor, args...);
+    return clearException(env, "NewObject") ? nullptr : result;
+}
+
+// UTF-8 copy of a Java string via its UTF-16 code units (GetStringUTFChars
+// would yield modified UTF-8). Empty optional when `string` is null or unreadable.
+std::optional<std::string> toUtf8(JNIEnv* env, jstring string) {
+    if (string == nullptr) {
+        return std::nullopt;
     }
-
-    jclass localeClass = env->FindClass("java/util/Locale");
-    jmethodID getDefaultMethod = env->GetStaticMethodID(localeClass, "getDefault", "()Ljava/util/Locale;");
-    jmethodID getLanguageMethod = env->GetMethodID(localeClass, "getLanguage", "()Ljava/lang/String;");
-
-    jobject defaultLocale = env->CallStaticObjectMethod(localeClass, getDefaultMethod);
-    jstring language = (jstring)env->CallObjectMethod(defaultLocale, getLanguageMethod);
-
-    const char* langStr = env->GetStringUTFChars(language, nullptr);
-    std::string result(langStr);
-    env->ReleaseStringUTFChars(language, langStr);
-
-    env->DeleteLocalRef(language);
-    env->DeleteLocalRef(defaultLocale);
-    env->DeleteLocalRef(localeClass);
-
+    const jsize length = env->GetStringLength(string);
+    const jchar* chars = env->GetStringChars(string, nullptr);
+    if (chars == nullptr) {
+        clearException(env, "GetStringChars");
+        return std::nullopt;
+    }
+    static_assert(sizeof(jchar) == sizeof(char16_t), "jchar must be a UTF-16 code unit");
+    std::string result = utf8FromUtf16(
+        std::u16string_view(reinterpret_cast<const char16_t*>(chars), static_cast<size_t>(length)));
+    env->ReleaseStringChars(string, chars);
     return result;
 }
 
-bool LocaleHelper::setLocale(const std::string& locale) {
+// Calls a `String` method on `receiver` and copies the result; releases the local ref.
+std::optional<std::string> callString(JNIEnv* env, jobject receiver, jmethodID method) {
+    auto string = static_cast<jstring>(callObject(env, receiver, method));
+    std::optional<std::string> result = toUtf8(env, string);
+    if (string != nullptr) {
+        env->DeleteLocalRef(string);
+    }
+    return result;
+}
+
+// Java string for a tag already checked with `isSafeLocaleTag` (pure ASCII, so
+// NewStringUTF's modified-UTF-8 contract holds). Null on failure.
+jstring newAsciiString(JNIEnv* env, const std::string& ascii) {
+    jstring result = env->NewStringUTF(ascii.c_str());
+    return clearException(env, "NewStringUTF") ? nullptr : result;
+}
+
+// Method ids of java.util.Locale used below; empty optional when any lookup fails.
+struct LocaleClass {
+    jclass cls;
+    jmethodID forLanguageTag;
+    jmethodID getDefault;
+    jmethodID getAvailableLocales;
+    jmethodID toLanguageTag;
+    jmethodID getLanguage;
+    jmethodID getCountry;
+    jmethodID getDisplayNameIn;
+
+    static std::optional<LocaleClass> lookup(JNIEnv* env) {
+        LocaleClass locale{};
+        locale.cls = findClass(env, "java/util/Locale");
+        if (locale.cls == nullptr) {
+            return std::nullopt;
+        }
+        locale.forLanguageTag = findStaticMethod(env, locale.cls, "forLanguageTag", "(Ljava/lang/String;)Ljava/util/Locale;");
+        locale.getDefault = findStaticMethod(env, locale.cls, "getDefault", "()Ljava/util/Locale;");
+        locale.getAvailableLocales = findStaticMethod(env, locale.cls, "getAvailableLocales", "()[Ljava/util/Locale;");
+        locale.toLanguageTag = findMethod(env, locale.cls, "toLanguageTag", "()Ljava/lang/String;");
+        locale.getLanguage = findMethod(env, locale.cls, "getLanguage", "()Ljava/lang/String;");
+        locale.getCountry = findMethod(env, locale.cls, "getCountry", "()Ljava/lang/String;");
+        locale.getDisplayNameIn = findMethod(env, locale.cls, "getDisplayName", "(Ljava/util/Locale;)Ljava/lang/String;");
+        const bool complete = locale.forLanguageTag && locale.getDefault && locale.getAvailableLocales &&
+                              locale.toLanguageTag && locale.getLanguage && locale.getCountry &&
+                              locale.getDisplayNameIn;
+        if (!complete) {
+            return std::nullopt;
+        }
+        return locale;
+    }
+
+    // `Locale.forLanguageTag(tag)` for a tag already checked with `isSafeLocaleTag`.
+    jobject fromTag(JNIEnv* env, const std::string& safeTag) const {
+        jstring tag = newAsciiString(env, safeTag);
+        if (tag == nullptr) {
+            return nullptr;
+        }
+        jobject locale = callStaticObject(env, cls, forLanguageTag, tag);
+        env->DeleteLocalRef(tag);
+        return locale;
+    }
+};
+
+// Primary language subtag of the device locale ("en" for "en-US"); empty on failure.
+std::string deviceLanguage(JNIEnv* env, const LocaleClass& localeClass, jobject deviceLocale) {
+    std::string tag = callString(env, deviceLocale, localeClass.toLanguageTag).value_or("");
+    return tag.substr(0, tag.find('-'));
+}
+
+// Copies a `String[]` into a vector; `skipFirst` drops index 0 (ICU weekday arrays are 1-based).
+std::optional<std::vector<std::string>> readStringArray(JNIEnv* env, jobjectArray array, bool skipFirst) {
+    if (array == nullptr) {
+        return std::nullopt;
+    }
+    const jsize length = env->GetArrayLength(array);
+    std::vector<std::string> result;
+    result.reserve(static_cast<size_t>(length));
+    for (jsize i = skipFirst ? 1 : 0; i < length; i++) {
+        auto element = static_cast<jstring>(env->GetObjectArrayElement(array, i));
+        if (clearException(env, "GetObjectArrayElement")) {
+            return std::nullopt;
+        }
+        std::optional<std::string> text = toUtf8(env, element);
+        if (element != nullptr) {
+            env->DeleteLocalRef(element);
+        }
+        if (!text) {
+            return std::nullopt;
+        }
+        result.push_back(std::move(*text));
+    }
+    return result;
+}
+
+// android.icu.text.DateFormatSymbols constants (API 24)
+constexpr jint kContextFormat = 0;     // DateFormatSymbols.FORMAT
+constexpr jint kContextStandalone = 1; // DateFormatSymbols.STANDALONE
+constexpr jint kWidthAbbreviated = 0;  // DateFormatSymbols.ABBREVIATED
+constexpr jint kWidthWide = 1;        // DateFormatSymbols.WIDE
+constexpr jint kWidthNarrow = 2;      // DateFormatSymbols.NARROW
+constexpr jint kWidthShort = 3;       // DateFormatSymbols.SHORT ("Su", "Mo")
+
+// Gregorian month and weekday names for `locale` from android.icu; nullptr when incomplete.
+std::shared_ptr<const LocaleCache> loadNames(JNIEnv* env, jobject locale, std::string localeId) {
+    // Force the Gregorian calendar: DateFormatSymbols(Locale) would pick the
+    // locale's default calendar (Islamic for ar-SA, ...) whose months are not 1..12.
+    jclass gregorianClass = findClass(env, "android/icu/util/GregorianCalendar");
+    jclass symbolsClass = findClass(env, "android/icu/text/DateFormatSymbols");
+    if (gregorianClass == nullptr || symbolsClass == nullptr) {
+        return nullptr;
+    }
+    jmethodID gregorianConstructor = findMethod(env, gregorianClass, "<init>", "(Ljava/util/Locale;)V");
+    jmethodID symbolsConstructor = findMethod(env, symbolsClass, "<init>", "(Landroid/icu/util/Calendar;Ljava/util/Locale;)V");
+    jmethodID getMonths = findMethod(env, symbolsClass, "getMonths", "(II)[Ljava/lang/String;");
+    jmethodID getWeekdays = findMethod(env, symbolsClass, "getWeekdays", "(II)[Ljava/lang/String;");
+    if (!gregorianConstructor || !symbolsConstructor || !getMonths || !getWeekdays) {
+        return nullptr;
+    }
+
+    jobject calendar = newObject(env, gregorianClass, gregorianConstructor, locale);
+    if (calendar == nullptr) {
+        return nullptr;
+    }
+    jobject symbols = newObject(env, symbolsClass, symbolsConstructor, calendar, locale);
+    if (symbols == nullptr) {
+        return nullptr;
+    }
+
+    const auto names = [&](jmethodID getter, jint context, jint width, bool skipFirst) {
+        auto array = static_cast<jobjectArray>(callObject(env, symbols, getter, context, width));
+        std::optional<std::vector<std::string>> list = readStringArray(env, array, skipFirst);
+        if (array != nullptr) {
+            env->DeleteLocalRef(array);
+        }
+        return list;
+    };
+
+    LocaleNameLists lists;
+    // ICU month arrays are 13 slots (UNDECIMBER); weekday arrays are 1-based
+    // with an empty [0]. Keep the Gregorian 12/7 prefix; extra slots are dropped.
+    const auto take = [](std::optional<std::vector<std::string>> list, size_t count,
+                         std::vector<std::string>& target) {
+        if (!list || !keepPrefix(*list, count)) {
+            return false;
+        }
+        target = std::move(*list);
+        return true;
+    };
+    const auto takeStandalone = [&](jmethodID getter, jint width, bool skipFirst, size_t count,
+                                    std::vector<std::string>& target) {
+        if (take(names(getter, kContextStandalone, width, skipFirst), count, target)) {
+            return true;
+        }
+        return take(names(getter, kContextFormat, width, skipFirst), count, target);
+    };
+    const bool complete = take(names(getMonths, kContextFormat, kWidthWide, false), 12, lists.monthNames) &&
+                          take(names(getMonths, kContextFormat, kWidthAbbreviated, false), 12, lists.monthNamesShort) &&
+                          takeStandalone(getMonths, kWidthNarrow, false, 12, lists.monthMinimal) &&
+                          take(names(getWeekdays, kContextFormat, kWidthWide, true), 7, lists.dayNames) &&
+                          take(names(getWeekdays, kContextFormat, kWidthAbbreviated, true), 7, lists.dayNamesShort) &&
+                          takeStandalone(getWeekdays, kWidthShort, true, 7, lists.dayVeryShort) &&
+                          takeStandalone(getWeekdays, kWidthNarrow, true, 7, lists.dayMinimal);
+    if (!complete) {
+        LOGE("LocaleHelper: incomplete date symbols for locale %s", localeId.c_str());
+        return nullptr;
+    }
+
+    auto cache = makeLocaleCache(std::move(localeId), std::move(lists));
+    if (!cache) {
+        LOGE("LocaleHelper: rejected date symbols (count or UTF-8) for a locale");
+    }
+    return cache;
+}
+
+struct AvailableLocale {
+    jobject locale;  // local ref owned by the caller's frame
+    std::string tag; // canonical BCP-47 tag from Locale.toLanguageTag()
+};
+
+// The entry of Locale.getAvailableLocales() naming `normalizedTag` (case-insensitive), if any.
+std::optional<AvailableLocale> findAvailableLocale(JNIEnv* env, const LocaleClass& localeClass,
+                                                   const std::string& normalizedTag) {
+    auto locales = static_cast<jobjectArray>(callStaticObject(env, localeClass.cls, localeClass.getAvailableLocales));
+    if (locales == nullptr) {
+        return std::nullopt;
+    }
+    const jsize length = env->GetArrayLength(locales);
+    for (jsize i = 0; i < length; i++) {
+        jobject locale = env->GetObjectArrayElement(locales, i);
+        if (clearException(env, "GetObjectArrayElement") || locale == nullptr) {
+            continue;
+        }
+        std::optional<std::string> tag = callString(env, locale, localeClass.toLanguageTag);
+        if (tag && localeIdsEqual(normalizedTag, *tag)) {
+            env->DeleteLocalRef(locales);
+            return AvailableLocale{locale, std::move(*tag)};
+        }
+        env->DeleteLocalRef(locale);
+    }
+    env->DeleteLocalRef(locales);
+    return std::nullopt;
+}
+
+// Sorted, de-duplicated `Locale.getLanguage()` of every available locale.
+std::vector<std::string> availableLanguages(JNIEnv* env, const LocaleClass& localeClass) {
+    std::set<std::string> languages;
+    auto locales = static_cast<jobjectArray>(callStaticObject(env, localeClass.cls, localeClass.getAvailableLocales));
+    if (locales == nullptr) {
+        return {};
+    }
+    const jsize length = env->GetArrayLength(locales);
+    for (jsize i = 0; i < length; i++) {
+        jobject locale = env->GetObjectArrayElement(locales, i);
+        if (clearException(env, "GetObjectArrayElement") || locale == nullptr) {
+            continue;
+        }
+        std::optional<std::string> language = callString(env, locale, localeClass.getLanguage);
+        if (language && !language->empty()) {
+            languages.insert(std::move(*language));
+        }
+        env->DeleteLocalRef(locale);
+    }
+    env->DeleteLocalRef(locales);
+    return std::vector<std::string>(languages.begin(), languages.end());
+}
+
+// `locale.getDisplayName(inLocale)`, or `fallback` when Java has none.
+std::string displayNameIn(JNIEnv* env, const LocaleClass& localeClass, jobject locale, jobject inLocale,
+                          const std::string& fallback) {
+    auto name = static_cast<jstring>(callObject(env, locale, localeClass.getDisplayNameIn, inLocale));
+    std::optional<std::string> text = toUtf8(env, name);
+    if (name != nullptr) {
+        env->DeleteLocalRef(name);
+    }
+    return text && !text->empty() ? *text : fallback;
+}
+
+constexpr jint kFrameCapacity = 64;
+
+} // namespace
+
+std::shared_ptr<const LocaleCache> LocaleHelper::loadDefaultFromPlatform() {
     JNIEnv* env = getJNIEnv();
-    if (env == nullptr) {
+    LocalFrame frame(env, kFrameCapacity);
+    if (!frame.ok()) {
+        LOGE("Cannot load locale names: JNI environment not available");
+        return nullptr;
+    }
+    const auto localeClass = LocaleClass::lookup(env);
+    if (!localeClass) {
+        return nullptr;
+    }
+    jobject locale = callStaticObject(env, localeClass->cls, localeClass->getDefault);
+    if (locale == nullptr) {
+        return nullptr;
+    }
+    return loadNames(env, locale, deviceLanguage(env, *localeClass, locale));
+}
+
+std::string LocaleHelper::getCurrentLocale() {
+    if (const auto snapshot = names()) {
+        return snapshot->localeId;
+    }
+
+    // Names could not be loaded; still report the device language when JNI works.
+    JNIEnv* env = getJNIEnv();
+    LocalFrame frame(env, kFrameCapacity);
+    if (!frame.ok()) {
+        return "en";
+    }
+    const auto localeClass = LocaleClass::lookup(env);
+    if (!localeClass) {
+        return "en";
+    }
+    jobject locale = callStaticObject(env, localeClass->cls, localeClass->getDefault);
+    if (locale == nullptr) {
+        return "en";
+    }
+    std::string language = deviceLanguage(env, *localeClass, locale);
+    return language.empty() ? "en" : language;
+}
+
+bool LocaleHelper::setLocale(const std::string& locale) {
+    const std::string normalized = normalizeLocaleId(locale);
+    if (!isSafeLocaleTag(normalized)) {
         return false;
     }
 
-    // Validate locale by trying to create it and get date symbols
-    jclass localeClass = env->FindClass("java/util/Locale");
-    jmethodID forLanguageTagMethod = env->GetStaticMethodID(localeClass, "forLanguageTag", "(Ljava/lang/String;)Ljava/util/Locale;");
-
-    jstring langTag = env->NewStringUTF(locale.c_str());
-    jobject testLocale = env->CallStaticObjectMethod(localeClass, forLanguageTagMethod, langTag);
-
-    // Check if locale produces valid date symbols
-    jclass dfsClass = env->FindClass("java/text/DateFormatSymbols");
-    jmethodID dfsConstructor = env->GetMethodID(dfsClass, "<init>", "(Ljava/util/Locale;)V");
-    jmethodID getMonthsMethod = env->GetMethodID(dfsClass, "getMonths", "()[Ljava/lang/String;");
-
-    jobject dfs = env->NewObject(dfsClass, dfsConstructor, testLocale);
-    jobjectArray months = (jobjectArray)env->CallObjectMethod(dfs, getMonthsMethod);
-
-    bool isValid = false;
-    if (months != nullptr) {
-        int length = env->GetArrayLength(months);
-        if (length > 0) {
-            jstring firstMonth = (jstring)env->GetObjectArrayElement(months, 0);
-            if (firstMonth != nullptr) {
-                const char* monthStr = env->GetStringUTFChars(firstMonth, nullptr);
-                isValid = (monthStr != nullptr && strlen(monthStr) > 0);
-                env->ReleaseStringUTFChars(firstMonth, monthStr);
-                env->DeleteLocalRef(firstMonth);
-            }
-        }
-        env->DeleteLocalRef(months);
+    JNIEnv* env = getJNIEnv();
+    LocalFrame frame(env, kFrameCapacity);
+    if (!frame.ok()) {
+        return false;
     }
-
-    env->DeleteLocalRef(dfs);
-    env->DeleteLocalRef(dfsClass);
-    env->DeleteLocalRef(testLocale);
-    env->DeleteLocalRef(langTag);
-    env->DeleteLocalRef(localeClass);
-
-    if (isValid) {
-        {
-            std::lock_guard<std::mutex> lock(g_localeMutex);
-            g_currentLocale = locale;
-        }
-
-        // Eagerly reload cache with new locale
-        {
-            std::lock_guard<std::mutex> lock(cacheMutex);
-            loadCacheFromPlatform();
-            cache.loaded = true;
-        }
+    const auto localeClass = LocaleClass::lookup(env);
+    if (!localeClass) {
+        return false;
     }
-
-    return isValid;
+    std::optional<AvailableLocale> match = findAvailableLocale(env, *localeClass, normalized);
+    if (!match) {
+        return false;
+    }
+    auto loaded = loadNames(env, match->locale, std::move(match->tag));
+    if (!loaded) {
+        return false;
+    }
+    store_.replace(std::move(loaded));
+    return true;
 }
 
 std::vector<std::string> LocaleHelper::getAvailableLocales() {
     JNIEnv* env = getJNIEnv();
-    std::vector<std::string> result;
-
-    if (env == nullptr) {
-        return result;
+    LocalFrame frame(env, kFrameCapacity);
+    if (!frame.ok()) {
+        return {};
     }
-
-    jclass localeClass = env->FindClass("java/util/Locale");
-    jmethodID getAvailableLocalesMethod = env->GetStaticMethodID(localeClass, "getAvailableLocales", "()[Ljava/util/Locale;");
-    jmethodID getLanguageMethod = env->GetMethodID(localeClass, "getLanguage", "()Ljava/lang/String;");
-
-    jobjectArray locales = (jobjectArray)env->CallStaticObjectMethod(localeClass, getAvailableLocalesMethod);
-    int length = env->GetArrayLength(locales);
-
-    // Use a set to get unique language codes
-    std::vector<std::string> uniqueCodes;
-    for (int i = 0; i < length; i++) {
-        jobject locale = env->GetObjectArrayElement(locales, i);
-        jstring language = (jstring)env->CallObjectMethod(locale, getLanguageMethod);
-
-        const char* langStr = env->GetStringUTFChars(language, nullptr);
-        std::string langCode(langStr);
-        env->ReleaseStringUTFChars(language, langStr);
-
-        // Only add non-empty unique codes
-        if (!langCode.empty()) {
-            bool found = false;
-            for (const auto& code : uniqueCodes) {
-                if (code == langCode) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                uniqueCodes.push_back(langCode);
-            }
-        }
-
-        env->DeleteLocalRef(language);
-        env->DeleteLocalRef(locale);
+    const auto localeClass = LocaleClass::lookup(env);
+    if (!localeClass) {
+        return {};
     }
-
-    env->DeleteLocalRef(locales);
-    env->DeleteLocalRef(localeClass);
-
-    // Sort alphabetically
-    std::sort(uniqueCodes.begin(), uniqueCodes.end());
-
-    return uniqueCodes;
+    return availableLanguages(env, *localeClass);
 }
 
 bool LocaleHelper::isValidLocale(const std::string& locale) {
-    JNIEnv* env = getJNIEnv();
-    if (env == nullptr) {
+    const std::string normalized = normalizeLocaleId(locale);
+    if (!isSafeLocaleTag(normalized)) {
         return false;
     }
 
-    jclass localeClass = env->FindClass("java/util/Locale");
-    jmethodID forLanguageTagMethod = env->GetStaticMethodID(localeClass, "forLanguageTag", "(Ljava/lang/String;)Ljava/util/Locale;");
-
-    jstring langTag = env->NewStringUTF(locale.c_str());
-    jobject testLocale = env->CallStaticObjectMethod(localeClass, forLanguageTagMethod, langTag);
-
-    // Check if it produces valid symbols
-    jclass dfsClass = env->FindClass("java/text/DateFormatSymbols");
-    jmethodID dfsConstructor = env->GetMethodID(dfsClass, "<init>", "(Ljava/util/Locale;)V");
-    jmethodID getMonthsMethod = env->GetMethodID(dfsClass, "getMonths", "()[Ljava/lang/String;");
-
-    jobject dfs = env->NewObject(dfsClass, dfsConstructor, testLocale);
-    jobjectArray months = (jobjectArray)env->CallObjectMethod(dfs, getMonthsMethod);
-
-    bool isValid = false;
-    if (months != nullptr) {
-        int length = env->GetArrayLength(months);
-        if (length > 0) {
-            jstring firstMonth = (jstring)env->GetObjectArrayElement(months, 0);
-            if (firstMonth != nullptr) {
-                const char* monthStr = env->GetStringUTFChars(firstMonth, nullptr);
-                isValid = (monthStr != nullptr && strlen(monthStr) > 0);
-                env->ReleaseStringUTFChars(firstMonth, monthStr);
-                env->DeleteLocalRef(firstMonth);
-            }
-        }
-        env->DeleteLocalRef(months);
+    JNIEnv* env = getJNIEnv();
+    LocalFrame frame(env, kFrameCapacity);
+    if (!frame.ok()) {
+        return false;
     }
-
-    env->DeleteLocalRef(dfs);
-    env->DeleteLocalRef(dfsClass);
-    env->DeleteLocalRef(testLocale);
-    env->DeleteLocalRef(langTag);
-    env->DeleteLocalRef(localeClass);
-
-    return isValid;
-}
-
-std::string LocaleHelper::getMonthName(int month, bool abbreviated) {
-    if (month < 1 || month > 12) {
-        return "";
+    const auto localeClass = LocaleClass::lookup(env);
+    if (!localeClass) {
+        return false;
     }
-
-    requireLocaleSet();
-
-    int index = month - 1;
-    if (abbreviated) {
-        return cache.monthNamesShort[index];
-    }
-    return cache.monthNames[index];
-}
-
-std::string LocaleHelper::getDayName(int dayOfWeek, bool abbreviated) {
-    if (dayOfWeek < 0 || dayOfWeek > 6) {
-        return "";
-    }
-
-    requireLocaleSet();
-
-    if (abbreviated) {
-        return cache.dayNamesShort[dayOfWeek];
-    }
-    return cache.dayNames[dayOfWeek];
+    return findAvailableLocale(env, *localeClass, normalized).has_value();
 }
 
 std::string LocaleHelper::getLocaleDisplayName(const std::string& localeCode) {
-    JNIEnv* env = getJNIEnv();
-    if (env == nullptr) {
+    const std::string normalized = normalizeLocaleId(localeCode);
+    if (!isSafeLocaleTag(normalized)) {
         return localeCode;
     }
 
-    jclass localeClass = env->FindClass("java/util/Locale");
-    jmethodID forLanguageTagMethod = env->GetStaticMethodID(localeClass, "forLanguageTag", "(Ljava/lang/String;)Ljava/util/Locale;");
-    jmethodID getDisplayNameMethod = env->GetMethodID(localeClass, "getDisplayName", "(Ljava/util/Locale;)Ljava/lang/String;");
-
-    // Create locale from code
-    jstring langTag = env->NewStringUTF(localeCode.c_str());
-    jobject locale = env->CallStaticObjectMethod(localeClass, forLanguageTagMethod, langTag);
-
-    // Get English locale for display name
-    jstring enTag = env->NewStringUTF("en");
-    jobject englishLocale = env->CallStaticObjectMethod(localeClass, forLanguageTagMethod, enTag);
-
-    // Get display name in English
-    jstring displayName = (jstring)env->CallObjectMethod(locale, getDisplayNameMethod, englishLocale);
-
-    std::string result = localeCode;
-    if (displayName != nullptr) {
-        const char* displayStr = env->GetStringUTFChars(displayName, nullptr);
-        if (displayStr != nullptr && strlen(displayStr) > 0) {
-            result = std::string(displayStr);
-        }
-        env->ReleaseStringUTFChars(displayName, displayStr);
-        env->DeleteLocalRef(displayName);
+    JNIEnv* env = getJNIEnv();
+    LocalFrame frame(env, kFrameCapacity);
+    if (!frame.ok()) {
+        return localeCode;
     }
-
-    env->DeleteLocalRef(englishLocale);
-    env->DeleteLocalRef(enTag);
-    env->DeleteLocalRef(locale);
-    env->DeleteLocalRef(langTag);
-    env->DeleteLocalRef(localeClass);
-
-    return result;
+    const auto localeClass = LocaleClass::lookup(env);
+    if (!localeClass) {
+        return localeCode;
+    }
+    jobject locale = localeClass->fromTag(env, normalized);
+    jobject englishLocale = localeClass->fromTag(env, "en");
+    if (locale == nullptr || englishLocale == nullptr) {
+        return localeCode;
+    }
+    return displayNameIn(env, *localeClass, locale, englishLocale, localeCode);
 }
 
 LocaleInfoData LocaleHelper::getLocaleInfo(const std::string& localeCode) {
-    JNIEnv* env = getJNIEnv();
     LocaleInfoData info;
     info.code = localeCode;
+    info.languageCode = localeCode;
+    info.displayName = localeCode;
+    info.nativeName = localeCode;
 
-    if (env == nullptr) {
-        info.languageCode = localeCode;
-        info.displayName = localeCode;
-        info.nativeName = localeCode;
+    const std::string normalized = normalizeLocaleId(localeCode);
+    if (!isSafeLocaleTag(normalized)) {
         return info;
     }
 
-    jclass localeClass = env->FindClass("java/util/Locale");
-    jmethodID forLanguageTagMethod = env->GetStaticMethodID(localeClass, "forLanguageTag", "(Ljava/lang/String;)Ljava/util/Locale;");
-    jmethodID getLanguageMethod = env->GetMethodID(localeClass, "getLanguage", "()Ljava/lang/String;");
-    jmethodID getCountryMethod = env->GetMethodID(localeClass, "getCountry", "()Ljava/lang/String;");
-    jmethodID getDisplayNameMethod = env->GetMethodID(localeClass, "getDisplayName", "(Ljava/util/Locale;)Ljava/lang/String;");
-    jmethodID getDisplayNameSelfMethod = env->GetMethodID(localeClass, "getDisplayName", "()Ljava/lang/String;");
-
-    // Create locale from code
-    jstring langTag = env->NewStringUTF(localeCode.c_str());
-    jobject locale = env->CallStaticObjectMethod(localeClass, forLanguageTagMethod, langTag);
-
-    // Get language code
-    jstring language = (jstring)env->CallObjectMethod(locale, getLanguageMethod);
-    if (language != nullptr) {
-        const char* langStr = env->GetStringUTFChars(language, nullptr);
-        if (langStr != nullptr) {
-            info.languageCode = std::string(langStr);
-        }
-        env->ReleaseStringUTFChars(language, langStr);
-        env->DeleteLocalRef(language);
+    JNIEnv* env = getJNIEnv();
+    LocalFrame frame(env, kFrameCapacity);
+    if (!frame.ok()) {
+        return info;
+    }
+    const auto localeClass = LocaleClass::lookup(env);
+    if (!localeClass) {
+        return info;
+    }
+    jobject locale = localeClass->fromTag(env, normalized);
+    jobject englishLocale = localeClass->fromTag(env, "en");
+    if (locale == nullptr || englishLocale == nullptr) {
+        return info;
     }
 
-    // Get region code
-    jstring country = (jstring)env->CallObjectMethod(locale, getCountryMethod);
-    if (country != nullptr) {
-        const char* countryStr = env->GetStringUTFChars(country, nullptr);
-        if (countryStr != nullptr) {
-            info.regionCode = std::string(countryStr);
-        }
-        env->ReleaseStringUTFChars(country, countryStr);
-        env->DeleteLocalRef(country);
-    }
+    info.languageCode = callString(env, locale, localeClass->getLanguage).value_or("");
+    info.regionCode = callString(env, locale, localeClass->getCountry).value_or("");
 
-    // Get English locale for display name
-    jstring enTag = env->NewStringUTF("en");
-    jobject englishLocale = env->CallStaticObjectMethod(localeClass, forLanguageTagMethod, enTag);
-
-    // Get display name in English
-    jstring displayName = (jstring)env->CallObjectMethod(locale, getDisplayNameMethod, englishLocale);
-    if (displayName != nullptr) {
-        const char* displayStr = env->GetStringUTFChars(displayName, nullptr);
-        if (displayStr != nullptr && strlen(displayStr) > 0) {
-            info.displayName = std::string(displayStr);
-        } else {
-            info.displayName = localeCode;
-        }
-        env->ReleaseStringUTFChars(displayName, displayStr);
-        env->DeleteLocalRef(displayName);
-    } else {
-        info.displayName = localeCode;
-    }
-
-    // Get native name (display name in its own language)
-    jstring nativeName = (jstring)env->CallObjectMethod(locale, getDisplayNameSelfMethod);
-    if (nativeName != nullptr) {
-        const char* nativeStr = env->GetStringUTFChars(nativeName, nullptr);
-        if (nativeStr != nullptr && strlen(nativeStr) > 0) {
-            info.nativeName = std::string(nativeStr);
-        } else {
-            info.nativeName = info.displayName;
-        }
-        env->ReleaseStringUTFChars(nativeName, nativeStr);
-        env->DeleteLocalRef(nativeName);
-    } else {
-        info.nativeName = info.displayName;
-    }
-
-    env->DeleteLocalRef(englishLocale);
-    env->DeleteLocalRef(enTag);
-    env->DeleteLocalRef(locale);
-    env->DeleteLocalRef(langTag);
-    env->DeleteLocalRef(localeClass);
+    // Display name in English, then in the locale's own language
+    info.displayName = displayNameIn(env, *localeClass, locale, englishLocale, localeCode);
+    info.nativeName = displayNameIn(env, *localeClass, locale, locale, info.displayName);
 
     return info;
 }
 
 std::vector<LocaleInfoData> LocaleHelper::getAvailableLocalesInfo() {
-    JNIEnv* env = getJNIEnv();
-    std::vector<LocaleInfoData> result;
-
-    if (env == nullptr) {
-        return result;
-    }
-
-    jclass localeClass = env->FindClass("java/util/Locale");
-    jmethodID getAvailableLocalesMethod = env->GetStaticMethodID(localeClass, "getAvailableLocales", "()[Ljava/util/Locale;");
-    jmethodID getLanguageMethod = env->GetMethodID(localeClass, "getLanguage", "()Ljava/lang/String;");
-
-    jobjectArray locales = (jobjectArray)env->CallStaticObjectMethod(localeClass, getAvailableLocalesMethod);
-    int length = env->GetArrayLength(locales);
-
-    // Use a set to get unique language codes
-    std::vector<std::string> uniqueCodes;
-    for (int i = 0; i < length; i++) {
-        jobject locale = env->GetObjectArrayElement(locales, i);
-        jstring language = (jstring)env->CallObjectMethod(locale, getLanguageMethod);
-
-        const char* langStr = env->GetStringUTFChars(language, nullptr);
-        std::string langCode(langStr);
-        env->ReleaseStringUTFChars(language, langStr);
-
-        // Only add non-empty unique codes
-        if (!langCode.empty()) {
-            bool found = false;
-            for (const auto& code : uniqueCodes) {
-                if (code == langCode) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                uniqueCodes.push_back(langCode);
-            }
+    std::vector<std::string> languages;
+    {
+        JNIEnv* env = getJNIEnv();
+        LocalFrame frame(env, kFrameCapacity);
+        if (!frame.ok()) {
+            return {};
         }
-
-        env->DeleteLocalRef(language);
-        env->DeleteLocalRef(locale);
+        const auto localeClass = LocaleClass::lookup(env);
+        if (!localeClass) {
+            return {};
+        }
+        languages = availableLanguages(env, *localeClass);
     }
-
-    env->DeleteLocalRef(locales);
-    env->DeleteLocalRef(localeClass);
-
-    // Sort alphabetically
-    std::sort(uniqueCodes.begin(), uniqueCodes.end());
 
     // Get full info for each locale
-    result.reserve(uniqueCodes.size());
-    for (const auto& code : uniqueCodes) {
+    std::vector<LocaleInfoData> result;
+    result.reserve(languages.size());
+    for (const auto& code : languages) {
         result.push_back(getLocaleInfo(code));
     }
-
     return result;
-}
-
-std::string LocaleHelper::getDayMinimal(int dayOfWeek) {
-    if (dayOfWeek < 0 || dayOfWeek > 6) {
-        return "";
-    }
-
-    requireLocaleSet();
-    return cache.dayMinimal[dayOfWeek];
-}
-
-std::string LocaleHelper::getDayVeryShort(int dayOfWeek) {
-    if (dayOfWeek < 0 || dayOfWeek > 6) {
-        return "";
-    }
-
-    requireLocaleSet();
-    return cache.dayVeryShort[dayOfWeek];
-}
-
-std::string LocaleHelper::getMonthMinimal(int month) {
-    if (month < 1 || month > 12) {
-        return "";
-    }
-
-    requireLocaleSet();
-    return cache.monthMinimal[month - 1];
 }
 
 } // namespace margelo::nitro::rnpackages_nativedate

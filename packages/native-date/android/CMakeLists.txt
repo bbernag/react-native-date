@@ -29,6 +29,7 @@ set(CPP_SOURCES
   ../cpp/core/Civil.cpp
   ../cpp/core/Formatter.cpp
   ../cpp/core/IsoParser.cpp
+  ../cpp/core/LocaleCache.cpp
   ../cpp/core/PatternParser.cpp
   ../cpp/core/RelativeBuckets.cpp
   ../cpp/core/ZoneMath.cpp
