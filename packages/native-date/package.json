@@ -51,7 +51,7 @@
     "test": "npx jest",
     "test:watch": "npx jest --watch",
     "test:coverage": "npx jest --coverage",
-    "benchmark": "npx jest benchmarks/benchmark.test.ts --verbose",
+    "benchmark": "npx jest benchmarks/benchmark.test.ts --testPathIgnorePatterns=/node_modules/ --verbose",
     "prepack": "yarn prepare",
     "release": "yarn test && yarn lint && yarn typecheck && yarn prepare",
     "release:patch": "npm version patch && git push --follow-tags",
