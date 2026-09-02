@@ -17,93 +17,90 @@
  */
 
 import type { DateComponents, TimeUnit } from './NativeDate.nitro';
-import type { Timezone } from './index';
+import type { Timezone } from './timezone';
 import {
-  // Core
-  now,
-  parse,
-  format,
-  formatUTC,
-  formatInTimezone,
-  toISOString,
-  formatDate,
-  formatDateTime,
-  // Getters
-  getYear,
-  getMonth,
-  getDate,
-  getDay,
-  getHours,
-  getMinutes,
-  getSeconds,
-  getMilliseconds,
-  getDaysInMonth,
-  getComponents,
-  // Arithmetic
   add,
-  subtract,
-  addYears,
-  addMonths,
-  addWeeks,
   addDays,
   addHours,
   addMinutes,
+  addMonths,
   addSeconds,
-  subYears,
-  subMonths,
-  subWeeks,
-  subDays,
-  subHours,
-  subMinutes,
-  subSeconds,
-  // Boundaries
-  startOf,
-  endOf,
-  startOfDay,
-  endOfDay,
-  startOfWeek,
-  endOfWeek,
-  startOfMonth,
-  endOfMonth,
-  startOfYear,
-  endOfYear,
-  // Setters
-  setYear,
-  setMonth,
-  setDate,
-  setHours,
-  setMinutes,
-  setSeconds,
-  setMilliseconds,
-  // Timezone
-  toTimezone,
-  toUTC,
-  // Comparisons
-  isBefore,
-  isAfter,
-  isSame,
-  isSameDay,
-  isSameMonth,
-  isSameYear,
-  // Predicates
-  isToday,
-  isTomorrow,
-  isYesterday,
-  isPast,
-  isFuture,
-  isWeekend,
-  isLeapYear,
-  isValid,
-  // Diff
+  addWeeks,
+  addYears,
   diff,
-  diffInYears,
-  diffInMonths,
-  diffInWeeks,
   diffInDays,
   diffInHours,
   diffInMinutes,
+  diffInMonths,
   diffInSeconds,
-} from './index';
+  diffInWeeks,
+  diffInYears,
+  subDays,
+  subHours,
+  subMinutes,
+  subMonths,
+  subSeconds,
+  subtract,
+  subWeeks,
+  subYears,
+} from './arithmetic';
+import {
+  endOf,
+  endOfDay,
+  endOfMonth,
+  endOfWeek,
+  endOfYear,
+  startOf,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+  startOfYear,
+} from './boundaries';
+import { isAfter, isBefore, isSame } from './compare';
+import {
+  format,
+  formatDate,
+  formatDateTime,
+  formatUTC,
+  toISOString,
+} from './format';
+import {
+  getComponents,
+  getDate,
+  getDay,
+  getDaysInMonth,
+  getHours,
+  getMilliseconds,
+  getMinutes,
+  getMonth,
+  getSeconds,
+  getYear,
+} from './getters';
+import { now } from './now';
+import { parse } from './parse';
+import {
+  isFuture,
+  isLeapYear,
+  isPast,
+  isSameDay,
+  isSameMonth,
+  isSameYear,
+  isToday,
+  isTomorrow,
+  isValid,
+  isWeekend,
+  isYesterday,
+} from './predicates';
+import {
+  setDate,
+  setHours,
+  setMilliseconds,
+  setMinutes,
+  setMonth,
+  setSeconds,
+  setYear,
+} from './setters';
+import { formatInTimezone, toTimezone, toUTC } from './zones';
 
 /**
  * Immutable chainable date wrapper

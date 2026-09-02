@@ -47,6 +47,7 @@ import {
   startOfDayInTz,
   fromComponents,
   setYear,
+  NativeDateModule,
 } from '../src/index';
 
 // Accepted by JS `Date.parse()` but not by the library's ISO 8601 parser.
@@ -305,5 +306,52 @@ describe('two-digit years are taken literally', () => {
       second: 45,
       millisecond: 123,
     });
+  });
+});
+
+describe('lazy native binding', () => {
+  it('does not create the HybridObject at import time, then caches it', () => {
+    jest.isolateModules(() => {
+      const nitro =
+        require('react-native-nitro-modules') as typeof import('react-native-nitro-modules');
+      const spy = jest.spyOn(nitro.NitroModules, 'createHybridObject');
+
+      const lib = require('../src/index') as typeof import('../src/index');
+      expect(spy).not.toHaveBeenCalled();
+
+      lib.now();
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith('NativeDate');
+
+      lib.parse('2024-12-25');
+      lib.format(0, 'yyyy');
+      expect(spy).toHaveBeenCalledTimes(1);
+      spy.mockRestore();
+    });
+  });
+
+  it('throws a setup error when the native module cannot be created', () => {
+    jest.isolateModules(() => {
+      jest.doMock('react-native-nitro-modules', () => ({
+        NitroModules: {
+          createHybridObject: () => {
+            throw new Error('HybridObject "NativeDate" not found');
+          },
+        },
+      }));
+      const { getNative } =
+        require('../src/native') as typeof import('../src/native');
+      expect(() => getNative()).toThrow(/development build/);
+      expect(() => getNative()).toThrow(/HybridObject "NativeDate" not found/);
+      jest.dontMock('react-native-nitro-modules');
+    });
+  });
+
+  it('NativeDateModule stays available as a lazily-bound proxy', () => {
+    expect(NativeDateModule.parse('2024-12-25')).toBe(parse('2024-12-25'));
+    expect(NativeDateModule.format(parse('2024-12-25'), 'yyyy-MM-dd')).toBe(
+      '2024-12-25'
+    );
+    expect('parse' in NativeDateModule).toBe(true);
   });
 });

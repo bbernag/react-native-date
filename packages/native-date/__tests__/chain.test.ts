@@ -178,3 +178,20 @@ describe('valueOf()', () => {
     expect(chain.formatDate()).toBe('2024-06-15');
   });
 });
+
+describe('module graph', () => {
+  it('importing ./chain does not evaluate the index barrel', () => {
+    jest.isolateModules(() => {
+      const indexEvaluated = jest.fn();
+      jest.doMock('../src/index', () => {
+        indexEvaluated();
+        return {};
+      });
+
+      const chain = require('../src/chain') as typeof import('../src/chain');
+      expect(indexEvaluated).not.toHaveBeenCalled();
+      expect(chain.nativeDate('2024-01-01').format('yyyy')).toBe('2024');
+      jest.dontMock('../src/index');
+    });
+  });
+});
