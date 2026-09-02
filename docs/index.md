@@ -173,14 +173,14 @@ import { nativeDate } from '@bernagl/react-native-date/chain';
 | iOS | 13.0+ |
 | Android | API 24+ (Android 7.0) |
 | React Native | 0.76+ (New Architecture) |
-| Nitro Modules | 0.35.x |
+| Nitro Modules | 0.36.x |
 
 ---
 
 ## Installation
 
 ```bash
-npm install @bernagl/react-native-date react-native-nitro-modules
+npm install @bernagl/react-native-date react-native-nitro-modules@0.36.5
 ```
 
 ### React Native CLI

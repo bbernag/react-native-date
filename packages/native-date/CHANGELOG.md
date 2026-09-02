@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-09-01
+
+### Changed
+
+- Upgrade Nitro Modules and Nitrogen generation to the 0.36 line (pin 0.36.5).
+- Require `react-native-nitro-modules >=0.36.0 <0.37.0` for native integration.
+- Validate the existing native spec against Nitrogen 0.36.5 with no generated API changes (same 17 files as 0.35.7).
+
+### Migration
+
+- Upgrade consuming apps to `react-native-nitro-modules >=0.36.0 <0.37.0` (install `react-native-nitro-modules@0.36.5`).
+- Reinstall iOS pods and rebuild native apps after upgrading.
+- Keep the JavaScript date API unchanged from v3.x.
+
 ## [3.0.0] - 2026-05-26
 
 ### Changed
@@ -58,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Minimal bridge overhead with Nitro Modules
 - Benchmark results show 2-22x improvement over date-fns/dayjs for various operations
 
-[Unreleased]: https://github.com/bbernag/react-native-date/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/bbernag/react-native-date/compare/v4.0.0...HEAD
+[4.0.0]: https://github.com/bbernag/react-native-date/compare/v3.0.0...v4.0.0
 [3.0.0]: https://github.com/bbernag/react-native-date/compare/v2.0.0...v3.0.0
 [0.1.0]: https://github.com/bbernag/react-native-date/releases/tag/v0.1.0

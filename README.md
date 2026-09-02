@@ -12,14 +12,14 @@ The fastest date library for React Native. Powered by C++ and [Nitro Modules](ht
 ## Installation
 
 ```bash
-npm install @bernagl/react-native-date react-native-nitro-modules
+npm install @bernagl/react-native-date react-native-nitro-modules@0.36.5
 ```
 
 ```bash
 cd ios && pod install
 ```
 
-**Requirements:** React Native 0.76+ (New Architecture) • Nitro Modules 0.35.x • iOS 13.0+ • Android API 24+
+**Requirements:** React Native 0.76+ (New Architecture) • Nitro Modules 0.36.x • iOS 13.0+ • Android API 24+
 
 ## Is this library for you?
 

@@ -6,6 +6,8 @@ node_modules/
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+package-lock.json
+**/.yarn/install-state.gz
 
 # Build outputs
 lib/
