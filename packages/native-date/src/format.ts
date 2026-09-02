@@ -63,7 +63,13 @@ export type FormatDistanceOptions = {
 
 /**
  * Format the distance between two dates in a human-readable way
- * ("2 hours ago", "in 3 days", "about 1 month").
+ * ("2 hours ago", "in 3 days", "1 month").
+ *
+ * The unit is chosen from one table on every platform (date-fns thresholds:
+ * under 30 seconds is "less than a minute", under 90 seconds "1 minute", ...).
+ * Localized output from the platform formatter has no "about"/"over"
+ * qualifiers. With `addSuffix: false` the bare quantity is returned
+ * ("2 hours"). Non-finite dates throw.
  *
  * Two call shapes are supported: an options object (preferred) or the legacy
  * positional form `formatDistance(date, baseDate?, addSuffix?)`.
@@ -75,7 +81,7 @@ export type FormatDistanceOptions = {
  *
  * @example
  * ```typescript
- * formatDistance(subHours(now(), 2));                          // "about 2 hours ago"
+ * formatDistance(subHours(now(), 2));                          // "2 hours ago"
  * formatDistance(addDays(now(), 1), { addSuffix: false });     // "1 day"
  * formatDistance(ts, { base: otherTs, addSuffix: true });      // "in 3 days"
  * formatDistance(ts, otherTs, false);                           // positional form

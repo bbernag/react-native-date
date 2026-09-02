@@ -9,6 +9,14 @@ import { getNative } from './native';
  *   treats it as UTC midnight.
  * - `'2024-12-25T10:30:00'` (no offset) is local time.
  * - `'2024-12-25T10:30:00Z'` / `'2024-12-25T10:30:00+02:00'` are absolute instants.
+ * - `'2024-12-25Z'` / `'2024-12-25+05:00'` (date-only with a designator) are UTC
+ *   midnight shifted by the offset.
+ *
+ * The grammar is strict: `YYYY-MM-DD[(T| )HH:mm[:ss[.S{1,9}]]][Z|±hh:mm|±hhmm|±hh]`.
+ * `HH:mm` is mandatory after `T` or a space, fractions are truncated to
+ * milliseconds, `24:00` is rejected, only uppercase `T`/`Z` are accepted, the
+ * calendar date must exist (no February 30), and strings longer than 128
+ * characters are rejected.
  *
  * Every function that accepts a `DateInput` string uses this same parser, so
  * `startOfDay('2024-12-25')` equals `startOfDay(parse('2024-12-25'))`.
@@ -64,7 +72,16 @@ export function tryParse(dateString: string): number | null {
  * - ss: 2-digit second (00-59)
  * - s: 1-2 digit second
  * - SSS: 3-digit millisecond (000-999)
- * - a/A: AM/PM marker
+ * - a/A: AM/PM marker (also `aa`, `aaa`; case-insensitive input)
+ * - YYYY/YY/DD/D and `[literal]` are accepted as aliases of the format tokens
+ *
+ * Parsing is strict: the whole pattern and the whole input must match (no
+ * prefix parsing or default-filled trailing fields), 1-2 digit tokens read at
+ * most two digits, fixed-width tokens require digits, the day must exist in
+ * its month, `hh`/`h` must be 1-12 (AM is assumed when no `a`/`A` token is
+ * present), and locale name tokens (`MMM`, `MMMM`, `EEE`, `dddd`, ...) are not
+ * supported for parsing. Inputs longer than 256 characters and patterns longer
+ * than 128 characters are rejected.
  *
  * @example
  * ```typescript

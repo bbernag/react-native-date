@@ -50,8 +50,10 @@ export function subtract(
  * Difference `date1 - date2` expressed in whole `unit`s, truncated toward zero.
  * Positive when `date1` is later than `date2`.
  *
- * `'day'` and `'week'` count local calendar days; `'month'` and `'year'` count
- * whole calendar months/years in local time.
+ * `'millisecond'` through `'week'` measure elapsed time (`'day'` = 24 hours,
+ * `'week'` = 168 hours, regardless of DST); `'month'` and `'year'` count
+ * complete calendar months/years in local time, so a partial month does not
+ * count (`diff('2024-03-01', '2024-01-31', 'month')` is `1`).
  *
  * @throws Error if either date is not a valid date
  *
