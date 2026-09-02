@@ -55,6 +55,14 @@ jobs:
       - name: Build
         run: yarn workspace @bernagl/react-native-date prepare
 
+      - name: Guard Nitro lockfile pin
+        run: node .github/scripts/assert-nitro-pin.mjs
+
+      - name: Pack dry-run
+        run: |
+          yarn workspace @bernagl/react-native-date pack --out "$RUNNER_TEMP/native-date.tgz"
+          bash .github/scripts/assert-pack-contents.sh "$RUNNER_TEMP/native-date.tgz"
+
       - name: Production dependency audit
         continue-on-error: true
         run: yarn npm audit --environment production

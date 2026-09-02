@@ -1,0 +1,80 @@
+name: Release
+
+# Tag-driven publish: push a `v*` tag or run workflow_dispatch.
+# Does not bump versions or git-push from `npm version`.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pack:
+    name: Pack dry-run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Guard Nitro lockfile pin
+        run: node .github/scripts/assert-nitro-pin.mjs
+
+      - name: Validate and build
+        run: yarn workspace @bernagl/react-native-date release
+
+      - name: Pack tarball
+        run: yarn workspace @bernagl/react-native-date pack --out "$RUNNER_TEMP/native-date.tgz"
+
+      - name: Assert packed files
+        run: bash .github/scripts/assert-pack-contents.sh "$RUNNER_TEMP/native-date.tgz"
+
+  publish:
+    name: Publish to npm
+    needs: pack
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Enable Corepack
+        run: |
+          npm install -g corepack@latest
+          corepack enable
+          corepack prepare yarn@4.11.0 --activate
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Guard Nitro lockfile pin
+        run: node .github/scripts/assert-nitro-pin.mjs
+
+      - name: Validate and build
+        run: yarn workspace @bernagl/react-native-date release
+
+      - name: Publish
+        working-directory: packages/native-date
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

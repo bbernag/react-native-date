@@ -29,7 +29,6 @@
     "CHANGELOG.md",
     "RELEASE_NOTES_*.md",
     "*.podspec",
-    "react-native.config.js",
     "!ios/build",
     "!android/build",
     "!android/gradle",
@@ -43,7 +42,7 @@
   ],
   "scripts": {
     "example": "yarn workspace @rn-packages/native-date-example",
-    "clean": "del-cli android/build example/android/build example/android/app/build example/ios/build lib",
+    "clean": "del-cli android/build ../example/android/build ../example/android/app/build ../example/ios/build lib",
     "prepare": "bob build",
     "nitrogen": "nitrogen",
     "typecheck": "tsc",
@@ -55,10 +54,7 @@
     "test:cpp:asan": "cmake -S cpp-tests -B cpp-tests/build-asan -DCMAKE_BUILD_TYPE=Debug -DNATIVEDATE_SANITIZE=ON && cmake --build cpp-tests/build-asan && ctest --test-dir cpp-tests/build-asan --output-on-failure",
     "benchmark": "npx jest benchmarks/benchmark.test.ts --testPathIgnorePatterns=/node_modules/ --verbose",
     "prepack": "yarn prepare",
-    "release": "yarn test && yarn lint && yarn typecheck && yarn prepare",
-    "release:patch": "npm version patch && git push --follow-tags",
-    "release:minor": "npm version minor && git push --follow-tags",
-    "release:major": "npm version major && git push --follow-tags"
+    "release": "yarn test && yarn lint && yarn typecheck && yarn prepare"
   },
   "keywords": [
     "react-native",
@@ -84,7 +80,11 @@
   "bugs": {
     "url": "https://github.com/bbernag/react-native-date/issues"
   },
-  "homepage": "https://github.com/bbernag/react-native-date#readme",
+  "homepage": "https://bbernag.github.io/react-native-date/",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "devDependencies": {
     "@babel/core": "^7.28.6",
     "@babel/eslint-parser": "^7.28.6",
@@ -94,10 +94,10 @@
     "@eslint/js": "^9.35.0",
     "@react-native/babel-preset": "0.81.1",
     "@react-native/eslint-config": "^0.81.1",
-    "@react-native/eslint-plugin": "^0.83.1",
+    "@react-native/eslint-plugin": "^0.81.1",
     "@types/babel__core": "^7",
     "@types/jest": "^30.0.0",
-    "@types/node": "^25.0.9",
+    "@types/node": "^22.0.0",
     "@types/react": "^19.1.0",
     "@typescript-eslint/eslint-plugin": "^8.53.1",
     "@typescript-eslint/parser": "^8.53.1",
@@ -169,7 +169,7 @@
     ]
   },
   "create-react-native-library": {
-    "languages": "kotlin-swift",
+    "languages": "cpp",
     "type": "nitro-module",
     "tools": [
       "eslint",

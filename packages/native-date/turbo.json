@@ -1,6 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalDependencies": [".nvmrc", ".yarnrc.yml"],
+  "globalDependencies": [".nvmrc", "../../.nvmrc", "../../.yarnrc.yml"],
   "globalEnv": ["NODE_ENV"],
   "tasks": {
     "build:android": {
@@ -11,11 +11,11 @@
         "!android/build",
         "src/*.ts",
         "src/*.tsx",
-        "example/package.json",
-        "example/android",
-        "!example/android/.gradle",
-        "!example/android/build",
-        "!example/android/app/build"
+        "../example/package.json",
+        "../example/android",
+        "!../example/android/.gradle",
+        "!../example/android/build",
+        "!../example/android/app/build"
       ],
       "outputs": []
     },
@@ -31,10 +31,10 @@
         "ios",
         "src/*.ts",
         "src/*.tsx",
-        "example/package.json",
-        "example/ios",
-        "!example/ios/build",
-        "!example/ios/Pods"
+        "../example/package.json",
+        "../example/ios",
+        "!../example/ios/build",
+        "!../example/ios/Pods"
       ],
       "outputs": []
     }
