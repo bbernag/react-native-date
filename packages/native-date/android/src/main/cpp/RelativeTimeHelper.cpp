@@ -1,14 +1,21 @@
 #include "RelativeTimeHelper.hpp"
 #include "LocaleHelper.hpp"
+#include "core/RelativeBuckets.hpp"
 #include <jni.h>
 #include <android/log.h>
-#include <cmath>
-#include <mutex>
+#include <optional>
+#include <utility>
+#include <vector>
 
 #define LOG_TAG "NativeDate"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 namespace margelo::nitro::rnpackages_nativedate {
+
+using nativedate::core::DurationParts;
+using nativedate::core::RelativeBucket;
+using nativedate::core::RelativeDirection;
+using nativedate::core::RelativeUnit;
 
 // Store JavaVM reference (set during JNI_OnLoad)
 static JavaVM* g_jvm = nullptr;
@@ -41,305 +48,306 @@ static JNIEnv* getJNIEnv() {
     return env;
 }
 
-// Get Java Locale object for current setting
-static jobject getJavaLocale(JNIEnv* env) {
-    std::string localeCode = LocaleHelper::getCurrentLocale();
+namespace {
 
-    jclass localeClass = env->FindClass("java/util/Locale");
-
-    if (localeCode.empty()) {
-        jmethodID getDefaultMethod = env->GetStaticMethodID(localeClass, "getDefault", "()Ljava/util/Locale;");
-        jobject locale = env->CallStaticObjectMethod(localeClass, getDefaultMethod);
-        env->DeleteLocalRef(localeClass);
-        return locale;
-    }
-
-    jmethodID forLanguageTagMethod = env->GetStaticMethodID(localeClass, "forLanguageTag", "(Ljava/lang/String;)Ljava/util/Locale;");
-    jstring langTag = env->NewStringUTF(localeCode.c_str());
-    jobject locale = env->CallStaticObjectMethod(localeClass, forLanguageTagMethod, langTag);
-
-    env->DeleteLocalRef(langTag);
-    env->DeleteLocalRef(localeClass);
-
-    return locale;
-}
-
-// English fallback for devices running Android < API 24 (Android 7.0 Nougat, released Aug 2016).
-// android.icu.text.RelativeDateTimeFormatter requires API 24+.
-// As of 2025, ~99% of Android devices support API 24+, so this fallback rarely triggers.
-std::string RelativeTimeHelper::formatDistanceEnglish(double diffMs, bool addSuffix) {
-    bool isFuture = diffMs > 0;
-    double absDiffMs = std::abs(diffMs);
-
-    double seconds = absDiffMs / 1000.0;
-    double minutes = seconds / 60.0;
-    double hours = minutes / 60.0;
-    double days = hours / 24.0;
-    double months = days / 30.0;
-    double years = days / 365.0;
-
-    std::string result;
-
-    if (seconds < 30) {
-        result = "less than a minute";
-    } else if (seconds < 90) {
-        result = "1 minute";
-    } else if (minutes < 45) {
-        result = std::to_string(static_cast<int>(std::round(minutes))) + " minutes";
-    } else if (minutes < 90) {
-        result = "about 1 hour";
-    } else if (hours < 24) {
-        result = "about " + std::to_string(static_cast<int>(std::round(hours))) + " hours";
-    } else if (hours < 42) {
-        result = "1 day";
-    } else if (days < 30) {
-        result = std::to_string(static_cast<int>(std::round(days))) + " days";
-    } else if (days < 45) {
-        result = "about 1 month";
-    } else if (days < 365) {
-        result = std::to_string(static_cast<int>(std::round(months))) + " months";
-    } else if (years < 1.5) {
-        result = "about 1 year";
-    } else if (years < 2.5) {
-        result = "over 1 year";
-    } else {
-        result = "about " + std::to_string(static_cast<int>(std::round(years))) + " years";
-    }
-
-    if (addSuffix) {
-        if (isFuture) {
-            result = "in " + result;
-        } else {
-            result = result + " ago";
+// RAII local-reference frame: every local ref created inside is released on
+// scope exit, including on early returns.
+class LocalFrame {
+public:
+    LocalFrame(JNIEnv* env, jint capacity) : env_(env), pushed_(env->PushLocalFrame(capacity) == JNI_OK) {}
+    ~LocalFrame() {
+        if (pushed_) {
+            env_->PopLocalFrame(nullptr);
         }
     }
+    LocalFrame(const LocalFrame&) = delete;
+    LocalFrame& operator=(const LocalFrame&) = delete;
 
+    bool ok() const { return pushed_; }
+
+private:
+    JNIEnv* env_;
+    bool pushed_;
+};
+
+// Clear and report a pending Java exception. Returns true when one was pending.
+bool clearException(JNIEnv* env, const char* where) {
+    if (env->ExceptionCheck() == JNI_FALSE) {
+        return false;
+    }
+    env->ExceptionClear();
+    LOGE("RelativeTimeHelper: Java exception in %s; using English fallback", where);
+    return true;
+}
+
+// Returns the object, or nullptr (with the exception cleared) when the call
+// failed or produced null.
+jobject checkedObject(JNIEnv* env, jobject value, const char* where) {
+    if (clearException(env, where) || value == nullptr) {
+        return nullptr;
+    }
+    return value;
+}
+
+jclass findClass(JNIEnv* env, const char* name) {
+    return static_cast<jclass>(checkedObject(env, env->FindClass(name), name));
+}
+
+jobject getStaticObjectField(JNIEnv* env, jclass cls, const char* name, const char* signature) {
+    jfieldID field = env->GetStaticFieldID(cls, name, signature);
+    if (clearException(env, name) || field == nullptr) {
+        return nullptr;
+    }
+    return checkedObject(env, env->GetStaticObjectField(cls, field), name);
+}
+
+// java.util.Locale for the current LocaleHelper setting (or the device default).
+jobject getJavaLocale(JNIEnv* env) {
+    jclass localeClass = findClass(env, "java/util/Locale");
+    if (localeClass == nullptr) {
+        return nullptr;
+    }
+
+    std::string localeCode = LocaleHelper::getCurrentLocale();
+    if (localeCode.empty()) {
+        jmethodID getDefault = env->GetStaticMethodID(localeClass, "getDefault", "()Ljava/util/Locale;");
+        if (clearException(env, "Locale.getDefault") || getDefault == nullptr) {
+            return nullptr;
+        }
+        return checkedObject(env, env->CallStaticObjectMethod(localeClass, getDefault), "Locale.getDefault");
+    }
+
+    jmethodID forLanguageTag = env->GetStaticMethodID(localeClass, "forLanguageTag",
+        "(Ljava/lang/String;)Ljava/util/Locale;");
+    if (clearException(env, "Locale.forLanguageTag") || forLanguageTag == nullptr) {
+        return nullptr;
+    }
+    jstring langTag = env->NewStringUTF(localeCode.c_str());
+    if (clearException(env, "NewStringUTF") || langTag == nullptr) {
+        return nullptr;
+    }
+    return checkedObject(env, env->CallStaticObjectMethod(localeClass, forLanguageTag, langTag),
+        "Locale.forLanguageTag");
+}
+
+std::optional<std::string> toStdString(JNIEnv* env, jstring value) {
+    if (value == nullptr) {
+        return std::nullopt;
+    }
+    const char* chars = env->GetStringUTFChars(value, nullptr);
+    if (clearException(env, "GetStringUTFChars") || chars == nullptr) {
+        return std::nullopt;
+    }
+    std::string result(chars);
+    env->ReleaseStringUTFChars(value, chars);
+    if (result.empty()) {
+        return std::nullopt;
+    }
     return result;
 }
 
-// English fallback for duration formatting.
-// android.icu.text.MeasureFormat requires API 24+ and is complex to use via JNI,
-// so we use this simplified English format (e.g., "1d 2h 3m 4s") as the default.
-std::string RelativeTimeHelper::formatDurationEnglish(double milliseconds) {
-    if (milliseconds < 0) {
-        milliseconds = -milliseconds;
+const char* relativeUnitFieldName(RelativeUnit unit) {
+    switch (unit) {
+        case RelativeUnit::Minute:
+            return "MINUTES";
+        case RelativeUnit::Hour:
+            return "HOURS";
+        case RelativeUnit::Day:
+            return "DAYS";
+        case RelativeUnit::Month:
+            return "MONTHS";
+        case RelativeUnit::Year:
+            return "YEARS";
     }
-
-    int64_t totalSeconds = static_cast<int64_t>(milliseconds / 1000.0);
-    int64_t totalMinutes = totalSeconds / 60;
-    int64_t totalHours = totalMinutes / 60;
-    int64_t totalDays = totalHours / 24;
-
-    int64_t seconds = totalSeconds % 60;
-    int64_t minutes = totalMinutes % 60;
-    int64_t hours = totalHours % 24;
-    int64_t days = totalDays;
-
-    std::string result;
-
-    if (days > 0) {
-        result += std::to_string(days) + "d ";
-    }
-    if (hours > 0 || days > 0) {
-        result += std::to_string(hours) + "h ";
-    }
-    if (minutes > 0 || hours > 0 || days > 0) {
-        result += std::to_string(minutes) + "m ";
-    }
-    result += std::to_string(seconds) + "s";
-
-    return result;
+    return "MINUTES";
 }
 
-std::string RelativeTimeHelper::formatDistance(double timestamp, double baseTimestamp, bool addSuffix) {
-    JNIEnv* env = getJNIEnv();
-    if (env == nullptr) {
-        return formatDistanceEnglish(timestamp - baseTimestamp, addSuffix);
+// android.icu.text.RelativeDateTimeFormatter (API 24+, our minSdk).
+// `Direction.PLAIN` renders the bare quantity ("2 hours"); NEXT/LAST add the
+// localized direction words. Returns nullopt on any JNI failure.
+std::optional<std::string> formatDistanceIcu(JNIEnv* env, const RelativeBucket& bucket, bool addSuffix) {
+    LocalFrame frame(env, 16);
+    if (!frame.ok()) {
+        clearException(env, "PushLocalFrame");
+        return std::nullopt;
     }
 
-    double diffMs = timestamp - baseTimestamp;
-
-    // Try to use android.icu.text.RelativeDateTimeFormatter (API 24+)
-    jclass rdtfClass = env->FindClass("android/icu/text/RelativeDateTimeFormatter");
-    if (rdtfClass == nullptr) {
-        // Clear exception and fallback
-        env->ExceptionClear();
-        return formatDistanceEnglish(diffMs, addSuffix);
+    jclass rdtfClass = findClass(env, "android/icu/text/RelativeDateTimeFormatter");
+    jclass unitClass = findClass(env, "android/icu/text/RelativeDateTimeFormatter$RelativeUnit");
+    jclass directionClass = findClass(env, "android/icu/text/RelativeDateTimeFormatter$Direction");
+    if (rdtfClass == nullptr || unitClass == nullptr || directionClass == nullptr) {
+        return std::nullopt;
     }
 
     jobject locale = getJavaLocale(env);
+    if (locale == nullptr) {
+        return std::nullopt;
+    }
 
-    // Get formatter instance for locale
-    jmethodID getInstanceMethod = env->GetStaticMethodID(rdtfClass, "getInstance",
+    jmethodID getInstance = env->GetStaticMethodID(rdtfClass, "getInstance",
         "(Ljava/util/Locale;)Landroid/icu/text/RelativeDateTimeFormatter;");
-    jobject formatter = env->CallStaticObjectMethod(rdtfClass, getInstanceMethod, locale);
-
+    if (clearException(env, "RelativeDateTimeFormatter.getInstance") || getInstance == nullptr) {
+        return std::nullopt;
+    }
+    jobject formatter = checkedObject(env, env->CallStaticObjectMethod(rdtfClass, getInstance, locale),
+        "RelativeDateTimeFormatter.getInstance");
     if (formatter == nullptr) {
-        env->DeleteLocalRef(locale);
-        env->DeleteLocalRef(rdtfClass);
-        return formatDistanceEnglish(diffMs, addSuffix);
+        return std::nullopt;
     }
 
-    // Determine the appropriate unit and value
-    double absDiffMs = std::abs(diffMs);
-    double seconds = absDiffMs / 1000.0;
-    double minutes = seconds / 60.0;
-    double hours = minutes / 60.0;
-    double days = hours / 24.0;
-    double weeks = days / 7.0;
-    double months = days / 30.0;
-    double years = days / 365.0;
-
-    // Get RelativeUnit class
-    jclass relativeUnitClass = env->FindClass("android/icu/text/RelativeDateTimeFormatter$RelativeUnit");
-    jclass directionClass = env->FindClass("android/icu/text/RelativeDateTimeFormatter$Direction");
-
-    if (relativeUnitClass == nullptr || directionClass == nullptr) {
-        env->ExceptionClear();
-        env->DeleteLocalRef(formatter);
-        env->DeleteLocalRef(locale);
-        env->DeleteLocalRef(rdtfClass);
-        return formatDistanceEnglish(diffMs, addSuffix);
+    const char* directionName = "PLAIN";
+    if (addSuffix) {
+        directionName = bucket.direction == RelativeDirection::Future ? "NEXT" : "LAST";
+    }
+    jobject direction = getStaticObjectField(env, directionClass, directionName,
+        "Landroid/icu/text/RelativeDateTimeFormatter$Direction;");
+    jobject unit = getStaticObjectField(env, unitClass, relativeUnitFieldName(bucket.unit),
+        "Landroid/icu/text/RelativeDateTimeFormatter$RelativeUnit;");
+    if (direction == nullptr || unit == nullptr) {
+        return std::nullopt;
     }
 
-    // Get the format method
-    jmethodID formatMethod = env->GetMethodID(rdtfClass, "format",
+    jmethodID format = env->GetMethodID(rdtfClass, "format",
         "(DLandroid/icu/text/RelativeDateTimeFormatter$Direction;Landroid/icu/text/RelativeDateTimeFormatter$RelativeUnit;)Ljava/lang/String;");
-
-    // Determine unit and value
-    jobject unit = nullptr;
-    jobject direction = nullptr;
-    double value = 0;
-
-    // Get direction
-    jfieldID directionField;
-    if (diffMs > 0) {
-        directionField = env->GetStaticFieldID(directionClass, "NEXT", "Landroid/icu/text/RelativeDateTimeFormatter$Direction;");
-    } else {
-        directionField = env->GetStaticFieldID(directionClass, "LAST", "Landroid/icu/text/RelativeDateTimeFormatter$Direction;");
+    if (clearException(env, "RelativeDateTimeFormatter.format") || format == nullptr) {
+        return std::nullopt;
     }
-    direction = env->GetStaticObjectField(directionClass, directionField);
 
-    // Get appropriate unit based on magnitude
-    jfieldID unitField;
-    if (minutes < 1) {
-        unitField = env->GetStaticFieldID(relativeUnitClass, "SECONDS", "Landroid/icu/text/RelativeDateTimeFormatter$RelativeUnit;");
-        value = std::round(seconds);
-    } else if (hours < 1) {
-        unitField = env->GetStaticFieldID(relativeUnitClass, "MINUTES", "Landroid/icu/text/RelativeDateTimeFormatter$RelativeUnit;");
-        value = std::round(minutes);
-    } else if (days < 1) {
-        unitField = env->GetStaticFieldID(relativeUnitClass, "HOURS", "Landroid/icu/text/RelativeDateTimeFormatter$RelativeUnit;");
-        value = std::round(hours);
-    } else if (weeks < 2) {
-        unitField = env->GetStaticFieldID(relativeUnitClass, "DAYS", "Landroid/icu/text/RelativeDateTimeFormatter$RelativeUnit;");
-        value = std::round(days);
-    } else if (months < 1) {
-        unitField = env->GetStaticFieldID(relativeUnitClass, "WEEKS", "Landroid/icu/text/RelativeDateTimeFormatter$RelativeUnit;");
-        value = std::round(weeks);
-    } else if (years < 1) {
-        unitField = env->GetStaticFieldID(relativeUnitClass, "MONTHS", "Landroid/icu/text/RelativeDateTimeFormatter$RelativeUnit;");
-        value = std::round(months);
-    } else {
-        unitField = env->GetStaticFieldID(relativeUnitClass, "YEARS", "Landroid/icu/text/RelativeDateTimeFormatter$RelativeUnit;");
-        value = std::round(years);
+    jstring result = static_cast<jstring>(checkedObject(env,
+        env->CallObjectMethod(formatter, format, static_cast<jdouble>(bucket.value), direction, unit),
+        "RelativeDateTimeFormatter.format"));
+    return toStdString(env, result);
+}
+
+// android.icu.util.MeasureUnit.DAY/HOUR/MINUTE/SECOND are declared as
+// TimeUnit; accept the MeasureUnit declaration too in case a vendor build differs.
+jobject getMeasureUnit(JNIEnv* env, jclass measureUnitClass, const char* name) {
+    jobject unit = getStaticObjectField(env, measureUnitClass, name, "Landroid/icu/util/TimeUnit;");
+    if (unit == nullptr) {
+        unit = getStaticObjectField(env, measureUnitClass, name, "Landroid/icu/util/MeasureUnit;");
     }
-    unit = env->GetStaticObjectField(relativeUnitClass, unitField);
+    return unit;
+}
 
-    // Format the result
-    jstring result = (jstring)env->CallObjectMethod(formatter, formatMethod, value, direction, unit);
+// android.icu.text.MeasureFormat.formatMeasures with FormatWidth.NARROW
+// ("1d 2h 3m 4s" in English, localized elsewhere). Leading zero units are
+// dropped to match iOS and the English fallback. Returns nullopt on failure.
+std::optional<std::string> formatDurationIcu(JNIEnv* env, const DurationParts& parts) {
+    LocalFrame frame(env, 32);
+    if (!frame.ok()) {
+        clearException(env, "PushLocalFrame");
+        return std::nullopt;
+    }
 
-    std::string formattedResult;
-    if (result != nullptr) {
-        const char* resultStr = env->GetStringUTFChars(result, nullptr);
-        if (resultStr != nullptr) {
-            formattedResult = std::string(resultStr);
+    jclass measureFormatClass = findClass(env, "android/icu/text/MeasureFormat");
+    jclass formatWidthClass = findClass(env, "android/icu/text/MeasureFormat$FormatWidth");
+    jclass measureClass = findClass(env, "android/icu/util/Measure");
+    jclass measureUnitClass = findClass(env, "android/icu/util/MeasureUnit");
+    jclass longClass = findClass(env, "java/lang/Long");
+    if (measureFormatClass == nullptr || formatWidthClass == nullptr || measureClass == nullptr
+        || measureUnitClass == nullptr || longClass == nullptr) {
+        return std::nullopt;
+    }
+
+    jobject locale = getJavaLocale(env);
+    jobject width = getStaticObjectField(env, formatWidthClass, "NARROW",
+        "Landroid/icu/text/MeasureFormat$FormatWidth;");
+    if (locale == nullptr || width == nullptr) {
+        return std::nullopt;
+    }
+
+    jmethodID getInstance = env->GetStaticMethodID(measureFormatClass, "getInstance",
+        "(Ljava/util/Locale;Landroid/icu/text/MeasureFormat$FormatWidth;)Landroid/icu/text/MeasureFormat;");
+    if (clearException(env, "MeasureFormat.getInstance") || getInstance == nullptr) {
+        return std::nullopt;
+    }
+    jobject formatter = checkedObject(env,
+        env->CallStaticObjectMethod(measureFormatClass, getInstance, locale, width), "MeasureFormat.getInstance");
+    if (formatter == nullptr) {
+        return std::nullopt;
+    }
+
+    jmethodID longValueOf = env->GetStaticMethodID(longClass, "valueOf", "(J)Ljava/lang/Long;");
+    jmethodID measureCtor = env->GetMethodID(measureClass, "<init>",
+        "(Ljava/lang/Number;Landroid/icu/util/MeasureUnit;)V");
+    if (clearException(env, "Measure.<init>") || longValueOf == nullptr || measureCtor == nullptr) {
+        return std::nullopt;
+    }
+
+    std::vector<std::pair<int64_t, const char*>> components;
+    if (parts.days > 0) {
+        components.emplace_back(parts.days, "DAY");
+    }
+    if (parts.hours > 0 || parts.days > 0) {
+        components.emplace_back(parts.hours, "HOUR");
+    }
+    if (parts.minutes > 0 || parts.hours > 0 || parts.days > 0) {
+        components.emplace_back(parts.minutes, "MINUTE");
+    }
+    components.emplace_back(parts.seconds, "SECOND");
+
+    jobjectArray measures = static_cast<jobjectArray>(checkedObject(env,
+        env->NewObjectArray(static_cast<jsize>(components.size()), measureClass, nullptr), "NewObjectArray"));
+    if (measures == nullptr) {
+        return std::nullopt;
+    }
+
+    for (jsize i = 0; i < static_cast<jsize>(components.size()); ++i) {
+        jobject unit = getMeasureUnit(env, measureUnitClass, components[i].second);
+        jobject number = checkedObject(env,
+            env->CallStaticObjectMethod(longClass, longValueOf, static_cast<jlong>(components[i].first)),
+            "Long.valueOf");
+        if (unit == nullptr || number == nullptr) {
+            return std::nullopt;
         }
-        env->ReleaseStringUTFChars(result, resultStr);
-        env->DeleteLocalRef(result);
+        jobject measure = checkedObject(env, env->NewObject(measureClass, measureCtor, number, unit), "Measure.<init>");
+        if (measure == nullptr) {
+            return std::nullopt;
+        }
+        env->SetObjectArrayElement(measures, i, measure);
+        if (clearException(env, "SetObjectArrayElement")) {
+            return std::nullopt;
+        }
+        env->DeleteLocalRef(measure);
+        env->DeleteLocalRef(number);
+        env->DeleteLocalRef(unit);
     }
 
-    // Cleanup
-    env->DeleteLocalRef(unit);
-    env->DeleteLocalRef(direction);
-    env->DeleteLocalRef(directionClass);
-    env->DeleteLocalRef(relativeUnitClass);
-    env->DeleteLocalRef(formatter);
-    env->DeleteLocalRef(locale);
-    env->DeleteLocalRef(rdtfClass);
-
-    if (formattedResult.empty()) {
-        return formatDistanceEnglish(diffMs, addSuffix);
+    jmethodID formatMeasures = env->GetMethodID(measureFormatClass, "formatMeasures",
+        "([Landroid/icu/util/Measure;)Ljava/lang/String;");
+    if (clearException(env, "MeasureFormat.formatMeasures") || formatMeasures == nullptr) {
+        return std::nullopt;
     }
 
-    return formattedResult;
+    jstring result = static_cast<jstring>(checkedObject(env,
+        env->CallObjectMethod(formatter, formatMeasures, measures), "MeasureFormat.formatMeasures"));
+    return toStdString(env, result);
+}
+
+} // namespace
+
+std::string RelativeTimeHelper::formatDistance(double timestamp, double baseTimestamp, bool addSuffix) {
+    // Throws std::invalid_argument for non-finite input before touching JNI.
+    const RelativeBucket bucket = nativedate::core::relativeBucket(timestamp, baseTimestamp);
+
+    if (JNIEnv* env = getJNIEnv()) {
+        if (auto result = formatDistanceIcu(env, bucket, addSuffix)) {
+            return *result;
+        }
+    }
+    return nativedate::core::formatRelativeEnglish(bucket, addSuffix);
 }
 
 std::string RelativeTimeHelper::formatDuration(double milliseconds) {
-    JNIEnv* env = getJNIEnv();
-    if (env == nullptr) {
-        return formatDurationEnglish(milliseconds);
+    // Throws std::invalid_argument for NaN/Inf; clamps to kMaxDurationMs.
+    const DurationParts parts = nativedate::core::decomposeDuration(milliseconds);
+
+    if (JNIEnv* env = getJNIEnv()) {
+        if (auto result = formatDurationIcu(env, parts)) {
+            return *result;
+        }
     }
-
-    if (milliseconds < 0) {
-        milliseconds = -milliseconds;
-    }
-
-    // Try to use android.icu.text.MeasureFormat for localized duration
-    jclass measureFormatClass = env->FindClass("android/icu/text/MeasureFormat");
-    if (measureFormatClass == nullptr) {
-        env->ExceptionClear();
-        return formatDurationEnglish(milliseconds);
-    }
-
-    jobject locale = getJavaLocale(env);
-
-    // Get FormatWidth.SHORT
-    jclass formatWidthClass = env->FindClass("android/icu/text/MeasureFormat$FormatWidth");
-    if (formatWidthClass == nullptr) {
-        env->ExceptionClear();
-        env->DeleteLocalRef(locale);
-        env->DeleteLocalRef(measureFormatClass);
-        return formatDurationEnglish(milliseconds);
-    }
-
-    jfieldID shortField = env->GetStaticFieldID(formatWidthClass, "SHORT", "Landroid/icu/text/MeasureFormat$FormatWidth;");
-    jobject formatWidth = env->GetStaticObjectField(formatWidthClass, shortField);
-
-    // Get MeasureFormat instance
-    jmethodID getInstanceMethod = env->GetStaticMethodID(measureFormatClass, "getInstance",
-        "(Ljava/util/Locale;Landroid/icu/text/MeasureFormat$FormatWidth;)Landroid/icu/text/MeasureFormat;");
-    jobject formatter = env->CallStaticObjectMethod(measureFormatClass, getInstanceMethod, locale, formatWidth);
-
-    if (formatter == nullptr) {
-        env->DeleteLocalRef(formatWidth);
-        env->DeleteLocalRef(formatWidthClass);
-        env->DeleteLocalRef(locale);
-        env->DeleteLocalRef(measureFormatClass);
-        return formatDurationEnglish(milliseconds);
-    }
-
-    // Calculate components
-    int64_t totalSeconds = static_cast<int64_t>(milliseconds / 1000.0);
-    int64_t totalMinutes = totalSeconds / 60;
-    int64_t totalHours = totalMinutes / 60;
-    int64_t totalDays = totalHours / 24;
-
-    int64_t seconds = totalSeconds % 60;
-    int64_t minutes = totalMinutes % 60;
-    int64_t hours = totalHours % 24;
-    int64_t days = totalDays;
-
-    // Build the result string using the formatter
-    // For simplicity, fallback to English formatting since MeasureFormat requires Measure objects
-    // which are complex to create via JNI
-    env->DeleteLocalRef(formatter);
-    env->DeleteLocalRef(formatWidth);
-    env->DeleteLocalRef(formatWidthClass);
-    env->DeleteLocalRef(locale);
-    env->DeleteLocalRef(measureFormatClass);
-
-    return formatDurationEnglish(milliseconds);
+    return nativedate::core::formatDurationEnglish(parts);
 }
 
 } // namespace margelo::nitro::rnpackages_nativedate
