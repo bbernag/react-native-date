@@ -281,38 +281,52 @@ bool HybridNativeDate::isValidTimezone(const std::string& timezone) {
     return timezoneProvider_.isValidZone(timezone);
 }
 
+// MARK: - Local-calendar predicates (system zone)
+
+bool HybridNativeDate::isToday(double timestamp) {
+    return core::isToday(timestamp, now(), timezoneProvider_);
+}
+
+bool HybridNativeDate::isTomorrow(double timestamp) {
+    return core::isTomorrow(timestamp, now(), timezoneProvider_);
+}
+
+bool HybridNativeDate::isYesterday(double timestamp) {
+    return core::isYesterday(timestamp, now(), timezoneProvider_);
+}
+
 // MARK: - Timezone-aware predicates (InTz)
 
 bool HybridNativeDate::isTodayInTz(double timestamp, const std::string& timezone) {
-    return core::isTodayInTz(timestamp, timezone, now(), timezoneProvider_, localeProvider_);
+    return core::isTodayInTz(timestamp, timezone, now(), timezoneProvider_);
 }
 
 bool HybridNativeDate::isTomorrowInTz(double timestamp, const std::string& timezone) {
-    return core::isTomorrowInTz(timestamp, timezone, now(), timezoneProvider_, localeProvider_);
+    return core::isTomorrowInTz(timestamp, timezone, now(), timezoneProvider_);
 }
 
 bool HybridNativeDate::isYesterdayInTz(double timestamp, const std::string& timezone) {
-    return core::isYesterdayInTz(timestamp, timezone, now(), timezoneProvider_, localeProvider_);
+    return core::isYesterdayInTz(timestamp, timezone, now(), timezoneProvider_);
 }
 
 bool HybridNativeDate::isSameDayInTz(double timestamp1, double timestamp2, const std::string& timezone) {
-    return core::isSameDayInTz(timestamp1, timestamp2, timezone, timezoneProvider_, localeProvider_);
+    return core::isSameDayInTz(timestamp1, timestamp2, timezone, timezoneProvider_);
 }
 
 bool HybridNativeDate::isSameMonthInTz(double timestamp1, double timestamp2, const std::string& timezone) {
-    return core::isSameMonthInTz(timestamp1, timestamp2, timezone, timezoneProvider_, localeProvider_);
+    return core::isSameMonthInTz(timestamp1, timestamp2, timezone, timezoneProvider_);
 }
 
 bool HybridNativeDate::isSameYearInTz(double timestamp1, double timestamp2, const std::string& timezone) {
-    return core::isSameYearInTz(timestamp1, timestamp2, timezone, timezoneProvider_, localeProvider_);
+    return core::isSameYearInTz(timestamp1, timestamp2, timezone, timezoneProvider_);
 }
 
 double HybridNativeDate::startOfDayInTz(double timestamp, const std::string& timezone) {
-    return core::startOfDayInTz(timestamp, timezone, timezoneProvider_, localeProvider_);
+    return core::startOfDayInTz(timestamp, timezone, timezoneProvider_);
 }
 
 double HybridNativeDate::endOfDayInTz(double timestamp, const std::string& timezone) {
-    return core::endOfDayInTz(timestamp, timezone, timezoneProvider_, localeProvider_);
+    return core::endOfDayInTz(timestamp, timezone, timezoneProvider_);
 }
 
 // MARK: - Locale

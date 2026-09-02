@@ -15,9 +15,11 @@ import {
   getDaysInMonth,
   add,
   addDays,
+  subDays,
   subMonths,
   startOf,
   startOfDay,
+  endOfDay,
   endOfMonth,
   diffInDays,
   clamp,
@@ -432,5 +434,122 @@ describe('getAvailableLocales()', () => {
     const first = getAvailableLocales();
     expect(getAvailableLocales()).toBe(first);
     expect(Object.isFrozen(first)).toBe(true);
+  });
+});
+
+describe('native isToday / isTomorrow / isYesterday (E-02)', () => {
+  type LocalDay = { year: number; month: number; day: number };
+
+  function sameLocalDay(a: LocalDay, b: LocalDay): boolean {
+    return a.year === b.year && a.month === b.month && a.day === b.day;
+  }
+
+  function previousComponents(date: number | string | Date): LocalDay | null {
+    if (typeof date === 'string') {
+      try {
+        return NativeDateModule.getComponentsFromString(date);
+      } catch {
+        return null;
+      }
+    }
+    const timestamp = typeof date === 'number' ? date : date.getTime();
+    return Number.isFinite(timestamp)
+      ? NativeDateModule.getComponents(timestamp)
+      : null;
+  }
+
+  function previousIsToday(date: number | string | Date): boolean {
+    const d = previousComponents(date);
+    return d !== null && sameLocalDay(d, NativeDateModule.getComponents(now()));
+  }
+
+  function previousIsTomorrow(date: number | string | Date): boolean {
+    const d = previousComponents(date);
+    return (
+      d !== null &&
+      sameLocalDay(d, NativeDateModule.getComponents(addDays(now(), 1)))
+    );
+  }
+
+  function previousIsYesterday(date: number | string | Date): boolean {
+    const d = previousComponents(date);
+    return (
+      d !== null &&
+      sameLocalDay(d, NativeDateModule.getComponents(subDays(now(), 1)))
+    );
+  }
+
+  it('matches the previous local-component implementation', () => {
+    const current = now();
+    const todayStart = startOfDay(current);
+    const todayEnd = endOfDay(current);
+    const samples: Array<number | string | Date> = [
+      current,
+      todayStart,
+      todayEnd,
+      todayStart - 1,
+      todayEnd + 1,
+      addDays(current, 1),
+      subDays(current, 1),
+      parse(ISO_DATE),
+      ISO_DATE,
+      ISO_DATETIME,
+      new Date(current),
+    ];
+    for (const sample of samples) {
+      expect(isToday(sample)).toBe(previousIsToday(sample));
+      expect(isTomorrow(sample)).toBe(previousIsTomorrow(sample));
+      expect(isYesterday(sample)).toBe(previousIsYesterday(sample));
+    }
+  });
+
+  it('treats local midnight edges as calendar days', () => {
+    const todayStart = startOfDay(now());
+    const todayEnd = endOfDay(now());
+    expect(isToday(todayStart)).toBe(true);
+    expect(isToday(todayEnd)).toBe(true);
+    expect(isYesterday(todayStart - 1)).toBe(true);
+    expect(isToday(todayStart - 1)).toBe(false);
+    expect(isTomorrow(todayEnd + 1)).toBe(true);
+    expect(isToday(todayEnd + 1)).toBe(false);
+  });
+
+  it('is a single native call for a timestamp', () => {
+    const native = (
+      require('../src/native') as typeof import('../src/native')
+    ).getNative();
+    const todaySpy = jest.spyOn(native, 'isToday');
+    const tomorrowSpy = jest.spyOn(native, 'isTomorrow');
+    const yesterdaySpy = jest.spyOn(native, 'isYesterday');
+    const componentsSpy = jest.spyOn(native, 'getComponents');
+    const addSpy = jest.spyOn(native, 'add');
+
+    const ts = now();
+    expect(isToday(ts)).toBe(true);
+    expect(todaySpy).toHaveBeenCalledTimes(1);
+    expect(todaySpy).toHaveBeenCalledWith(ts);
+    expect(componentsSpy).not.toHaveBeenCalled();
+
+    const tomorrow = addDays(ts, 1);
+    addSpy.mockClear();
+    expect(isTomorrow(tomorrow)).toBe(true);
+    expect(tomorrowSpy).toHaveBeenCalledTimes(1);
+    expect(tomorrowSpy).toHaveBeenCalledWith(tomorrow);
+    expect(addSpy).not.toHaveBeenCalled();
+    expect(componentsSpy).not.toHaveBeenCalled();
+
+    const yesterday = subDays(ts, 1);
+    addSpy.mockClear();
+    expect(isYesterday(yesterday)).toBe(true);
+    expect(yesterdaySpy).toHaveBeenCalledTimes(1);
+    expect(yesterdaySpy).toHaveBeenCalledWith(yesterday);
+    expect(addSpy).not.toHaveBeenCalled();
+    expect(componentsSpy).not.toHaveBeenCalled();
+
+    todaySpy.mockRestore();
+    tomorrowSpy.mockRestore();
+    yesterdaySpy.mockRestore();
+    componentsSpy.mockRestore();
+    addSpy.mockRestore();
   });
 });

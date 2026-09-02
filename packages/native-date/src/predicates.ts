@@ -1,5 +1,4 @@
 import type { DateComponents } from './NativeDate.nitro';
-import { addDays, subDays } from './arithmetic';
 import { isAfter, isBefore } from './compare';
 import { componentsOrNull, toTimestampOrNull } from './input';
 import { getNative } from './native';
@@ -44,8 +43,6 @@ export function isValid(date: DateInput): boolean {
   return timestamp !== null && getNative().isValid(timestamp);
 }
 
-// These use getComponents() for fast local time comparison (native C++ call).
-
 function isSameLocalDay(d: DateComponents, o: DateComponents): boolean {
   return d.year === o.year && d.month === o.month && d.day === o.day;
 }
@@ -56,8 +53,8 @@ function isSameLocalDay(d: DateComponents, o: DateComponents): boolean {
  * @see isTodayInTz - Same check in a named time zone
  */
 export function isToday(date: DateInput): boolean {
-  const d = componentsOrNull(date);
-  return d !== null && isSameLocalDay(d, getNative().getComponents(now()));
+  const timestamp = toTimestampOrNull(date);
+  return timestamp !== null && getNative().isToday(timestamp);
 }
 
 /**
@@ -65,11 +62,8 @@ export function isToday(date: DateInput): boolean {
  * Returns `false` for invalid input.
  */
 export function isTomorrow(date: DateInput): boolean {
-  const d = componentsOrNull(date);
-  return (
-    d !== null &&
-    isSameLocalDay(d, getNative().getComponents(addDays(now(), 1)))
-  );
+  const timestamp = toTimestampOrNull(date);
+  return timestamp !== null && getNative().isTomorrow(timestamp);
 }
 
 /**
@@ -77,11 +71,8 @@ export function isTomorrow(date: DateInput): boolean {
  * Returns `false` for invalid input.
  */
 export function isYesterday(date: DateInput): boolean {
-  const d = componentsOrNull(date);
-  return (
-    d !== null &&
-    isSameLocalDay(d, getNative().getComponents(subDays(now(), 1)))
-  );
+  const timestamp = toTimestampOrNull(date);
+  return timestamp !== null && getNative().isYesterday(timestamp);
 }
 
 /**

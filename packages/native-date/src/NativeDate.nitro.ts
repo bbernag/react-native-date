@@ -125,6 +125,11 @@ export interface NativeDate
   getAvailableTimezones(): string[];
   isValidTimezone(timezone: string): boolean;
 
+  // Local-calendar predicates (system zone, integer Y-M-D compare)
+  isToday(timestamp: number): boolean;
+  isTomorrow(timestamp: number): boolean;
+  isYesterday(timestamp: number): boolean;
+
   // Timezone-aware predicates (InTz)
   isTodayInTz(timestamp: number, timezone: string): boolean;
   isTomorrowInTz(timestamp: number, timezone: string): boolean;

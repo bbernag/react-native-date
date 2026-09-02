@@ -42,27 +42,30 @@ double toTimezone(double timestamp, const std::string& timezone, const TimezoneP
 std::string formatInTimezone(double timestamp, const std::string& pattern, const std::string& timezone,
                              const TimezoneProvider& tz, const LocaleProvider& locale);
 
-// Timezone-aware predicates. `nowTimestamp` is the reference "now" so callers
-// (and tests) control the clock. They compare the zone's civil date as
-// integers (day number since the epoch, or year/month) rather than formatted
-// strings, and "tomorrow"/"yesterday" mean the civil date +/- 1 in `timezone`,
-// not add(..., Unit::Day) (device-zone calendar math) and not +/- 24h, so they
-// are correct on 23- and 25-hour DST days.
-// `locale` is accepted for signature stability; the predicates do not use it.
-// Every InTz entry throws std::invalid_argument for a non-finite or out-of-range
-// timestamp, matching requireValidTimestamp.
+// Local-calendar predicates in the device timezone (`tz.systemZone()`).
+// `nowTimestamp` is the reference "now" so callers (and tests) control the clock.
+// They compare civil day numbers, not formatted strings. Tomorrow/yesterday are
+// the civil date +/- 1, so they stay correct on 23- and 25-hour DST days.
+bool isToday(double timestamp, double nowTimestamp, const TimezoneProvider& tz);
+bool isTomorrow(double timestamp, double nowTimestamp, const TimezoneProvider& tz);
+bool isYesterday(double timestamp, double nowTimestamp, const TimezoneProvider& tz);
+
+// Timezone-aware predicates. Same integer civil-date compare as above, in
+// `timezone` rather than the system zone. Every entry throws
+// std::invalid_argument for a non-finite or out-of-range timestamp, matching
+// requireValidTimestamp. An unknown zone name also throws (Q4).
 bool isTodayInTz(double timestamp, const std::string& timezone, double nowTimestamp,
-                 const TimezoneProvider& tz, const LocaleProvider& locale);
+                 const TimezoneProvider& tz);
 bool isTomorrowInTz(double timestamp, const std::string& timezone, double nowTimestamp,
-                    const TimezoneProvider& tz, const LocaleProvider& locale);
+                    const TimezoneProvider& tz);
 bool isYesterdayInTz(double timestamp, const std::string& timezone, double nowTimestamp,
-                     const TimezoneProvider& tz, const LocaleProvider& locale);
+                     const TimezoneProvider& tz);
 bool isSameDayInTz(double timestamp1, double timestamp2, const std::string& timezone,
-                   const TimezoneProvider& tz, const LocaleProvider& locale);
+                   const TimezoneProvider& tz);
 bool isSameMonthInTz(double timestamp1, double timestamp2, const std::string& timezone,
-                     const TimezoneProvider& tz, const LocaleProvider& locale);
+                     const TimezoneProvider& tz);
 bool isSameYearInTz(double timestamp1, double timestamp2, const std::string& timezone,
-                    const TimezoneProvider& tz, const LocaleProvider& locale);
+                    const TimezoneProvider& tz);
 
 /**
  * UTC instant of local midnight on `timestamp`'s civil date in `timezone`
@@ -71,10 +74,10 @@ bool isSameYearInTz(double timestamp1, double timestamp2, const std::string& tim
  * overlap) the result is the earlier instant.
  */
 double startOfDayInTz(double timestamp, const std::string& timezone,
-                      const TimezoneProvider& tz, const LocaleProvider& locale);
+                      const TimezoneProvider& tz);
 
 /** Zoned midnight of the next civil date minus 1 ms. */
 double endOfDayInTz(double timestamp, const std::string& timezone,
-                    const TimezoneProvider& tz, const LocaleProvider& locale);
+                    const TimezoneProvider& tz);
 
 } // namespace nativedate::core

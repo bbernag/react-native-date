@@ -90,6 +90,11 @@ public:
     std::vector<std::string> getAvailableTimezones() override;
     bool isValidTimezone(const std::string& timezone) override;
 
+    // Local-calendar predicates (system zone)
+    bool isToday(double timestamp) override;
+    bool isTomorrow(double timestamp) override;
+    bool isYesterday(double timestamp) override;
+
     // Timezone-aware predicates (InTz)
     bool isTodayInTz(double timestamp, const std::string& timezone) override;
     bool isTomorrowInTz(double timestamp, const std::string& timezone) override;

@@ -214,6 +214,14 @@ function getComponentsFromTimestamp(timestamp: number): DateComponents {
   };
 }
 
+/** Local civil day number (days since 1970-01-01 of the local Y-M-D). */
+function localCivilDay(timestamp: number): number {
+  const date = new Date(timestamp);
+  return (
+    Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000
+  );
+}
+
 function addToDate(timestamp: number, amount: number, unit: TimeUnit): number {
   const date = new Date(timestamp);
   switch (unit) {
@@ -793,6 +801,11 @@ const mockNativeDate = {
     return day === 0 || day === 6;
   },
   isValid: (ts: number) => !isNaN(ts) && isFinite(ts),
+  isToday: (ts: number) => localCivilDay(ts) === localCivilDay(Date.now()),
+  isTomorrow: (ts: number) =>
+    localCivilDay(ts) === localCivilDay(Date.now()) + 1,
+  isYesterday: (ts: number) =>
+    localCivilDay(ts) === localCivilDay(Date.now()) - 1,
 
   // Arithmetic
   add: addToDate,

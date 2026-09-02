@@ -128,10 +128,24 @@ std::string formatInTimezone(double timestamp, const std::string& pattern, const
     return formatInternal(adjustedTimestamp, pattern, true, locale);
 }
 
+// MARK: - Local-calendar predicates (system zone)
+
+bool isToday(double timestamp, double nowTimestamp, const TimezoneProvider& tz) {
+    return isTodayInTz(timestamp, tz.systemZone(), nowTimestamp, tz);
+}
+
+bool isTomorrow(double timestamp, double nowTimestamp, const TimezoneProvider& tz) {
+    return isTomorrowInTz(timestamp, tz.systemZone(), nowTimestamp, tz);
+}
+
+bool isYesterday(double timestamp, double nowTimestamp, const TimezoneProvider& tz) {
+    return isYesterdayInTz(timestamp, tz.systemZone(), nowTimestamp, tz);
+}
+
 // MARK: - Timezone-aware predicates (InTz)
 
 bool isTodayInTz(double timestamp, const std::string& timezone, double nowTimestamp,
-                 const TimezoneProvider& tz, const LocaleProvider& locale) {
+                 const TimezoneProvider& tz) {
     requireValidTimestamp(timestamp);
     requireValidTimestamp(nowTimestamp);
     std::string zone = resolveZone(timezone, tz);
@@ -139,7 +153,7 @@ bool isTodayInTz(double timestamp, const std::string& timezone, double nowTimest
 }
 
 bool isTomorrowInTz(double timestamp, const std::string& timezone, double nowTimestamp,
-                    const TimezoneProvider& tz, const LocaleProvider& locale) {
+                    const TimezoneProvider& tz) {
     requireValidTimestamp(timestamp);
     requireValidTimestamp(nowTimestamp);
     std::string zone = resolveZone(timezone, tz);
@@ -148,7 +162,7 @@ bool isTomorrowInTz(double timestamp, const std::string& timezone, double nowTim
 }
 
 bool isYesterdayInTz(double timestamp, const std::string& timezone, double nowTimestamp,
-                     const TimezoneProvider& tz, const LocaleProvider& locale) {
+                     const TimezoneProvider& tz) {
     requireValidTimestamp(timestamp);
     requireValidTimestamp(nowTimestamp);
     std::string zone = resolveZone(timezone, tz);
@@ -156,7 +170,7 @@ bool isYesterdayInTz(double timestamp, const std::string& timezone, double nowTi
 }
 
 bool isSameDayInTz(double timestamp1, double timestamp2, const std::string& timezone,
-                   const TimezoneProvider& tz, const LocaleProvider& locale) {
+                   const TimezoneProvider& tz) {
     requireValidTimestamp(timestamp1);
     requireValidTimestamp(timestamp2);
     std::string zone = resolveZone(timezone, tz);
@@ -164,7 +178,7 @@ bool isSameDayInTz(double timestamp1, double timestamp2, const std::string& time
 }
 
 bool isSameMonthInTz(double timestamp1, double timestamp2, const std::string& timezone,
-                     const TimezoneProvider& tz, const LocaleProvider& locale) {
+                     const TimezoneProvider& tz) {
     requireValidTimestamp(timestamp1);
     requireValidTimestamp(timestamp2);
     std::string zone = resolveZone(timezone, tz);
@@ -174,7 +188,7 @@ bool isSameMonthInTz(double timestamp1, double timestamp2, const std::string& ti
 }
 
 bool isSameYearInTz(double timestamp1, double timestamp2, const std::string& timezone,
-                    const TimezoneProvider& tz, const LocaleProvider& locale) {
+                    const TimezoneProvider& tz) {
     requireValidTimestamp(timestamp1);
     requireValidTimestamp(timestamp2);
     std::string zone = resolveZone(timezone, tz);
@@ -184,7 +198,7 @@ bool isSameYearInTz(double timestamp1, double timestamp2, const std::string& tim
 }
 
 double startOfDayInTz(double timestamp, const std::string& timezone,
-                      const TimezoneProvider& tz, const LocaleProvider& locale) {
+                      const TimezoneProvider& tz) {
     requireValidTimestamp(timestamp);
     std::string zone = resolveZone(timezone, tz);
     int64_t day = civilDayNumber(zone, toMs(timestamp), tz);
@@ -192,7 +206,7 @@ double startOfDayInTz(double timestamp, const std::string& timezone,
 }
 
 double endOfDayInTz(double timestamp, const std::string& timezone,
-                    const TimezoneProvider& tz, const LocaleProvider& locale) {
+                    const TimezoneProvider& tz) {
     requireValidTimestamp(timestamp);
     std::string zone = resolveZone(timezone, tz);
     // Next civil date in `zone` (not add(..., Unit::Day), which uses the device zone).
