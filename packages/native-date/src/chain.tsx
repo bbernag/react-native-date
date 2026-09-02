@@ -67,6 +67,14 @@ import {
   endOfMonth,
   startOfYear,
   endOfYear,
+  // Setters
+  setYear,
+  setMonth,
+  setDate,
+  setHours,
+  setMinutes,
+  setSeconds,
+  setMilliseconds,
   // Timezone
   toTimezone,
   toUTC,
@@ -312,46 +320,34 @@ export class NativeDateChain {
   }
 
   // Setters (return new chain with modified value)
+  // Delegate to the functional setters so both APIs clamp the same way
+  // (Feb 29 -> Feb 28 in a non-leap year, Jan 31 -> Feb 29/28, ...).
   setYear(year: number): NativeDateChain {
-    const d = new Date(this.ts);
-    d.setFullYear(year);
-    return new NativeDateChain(d.getTime());
+    return new NativeDateChain(setYear(this.ts, year));
   }
 
   setMonth(month: number): NativeDateChain {
-    const d = new Date(this.ts);
-    d.setMonth(month - 1); // Convert 1-indexed to 0-indexed
-    return new NativeDateChain(d.getTime());
+    return new NativeDateChain(setMonth(this.ts, month));
   }
 
   setDate(date: number): NativeDateChain {
-    const d = new Date(this.ts);
-    d.setDate(date);
-    return new NativeDateChain(d.getTime());
+    return new NativeDateChain(setDate(this.ts, date));
   }
 
   setHours(hours: number): NativeDateChain {
-    const d = new Date(this.ts);
-    d.setHours(hours);
-    return new NativeDateChain(d.getTime());
+    return new NativeDateChain(setHours(this.ts, hours));
   }
 
   setMinutes(minutes: number): NativeDateChain {
-    const d = new Date(this.ts);
-    d.setMinutes(minutes);
-    return new NativeDateChain(d.getTime());
+    return new NativeDateChain(setMinutes(this.ts, minutes));
   }
 
   setSeconds(seconds: number): NativeDateChain {
-    const d = new Date(this.ts);
-    d.setSeconds(seconds);
-    return new NativeDateChain(d.getTime());
+    return new NativeDateChain(setSeconds(this.ts, seconds));
   }
 
   setMilliseconds(milliseconds: number): NativeDateChain {
-    const d = new Date(this.ts);
-    d.setMilliseconds(milliseconds);
-    return new NativeDateChain(d.getTime());
+    return new NativeDateChain(setMilliseconds(this.ts, milliseconds));
   }
 
   // Timezone (return new chain)

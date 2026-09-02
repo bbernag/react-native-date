@@ -24,21 +24,52 @@ export type {
 export type DateInput = number | string | Date;
 
 /**
- * Convert any DateInput to a timestamp (milliseconds)
+ * Convert any DateInput to a finite timestamp (milliseconds), or `null` when the
+ * input is invalid. Never throws.
  *
- * Uses JS Date.parse() for strings instead of native C++ parse because:
- * - Avoids bridge crossing overhead for simple ISO 8601 parsing
- * - JS Date.parse() is faster for this use case since it doesn't need to cross the JS-to-native bridge
+ * Strings go through the same native ISO 8601 parser as `parse()` so that
+ * date-only strings mean local midnight everywhere in the API. Numbers and
+ * `Date` objects are accepted only when they are finite.
+ */
+function toTimestampOrNull(date: DateInput): number | null {
+  let timestamp: number;
+  if (typeof date === 'number') {
+    timestamp = date;
+  } else if (typeof date === 'string') {
+    try {
+      timestamp = NativeDateModule.parse(date);
+    } catch {
+      return null;
+    }
+  } else {
+    timestamp = date.getTime();
+  }
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+/**
+ * Convert any DateInput to a finite timestamp (milliseconds).
  *
- * For custom format parsing, use `parseFormat()` which leverages native C++ for complex patterns.
+ * Strings go through the same native ISO 8601 parser as `parse()` (date-only
+ * strings are local midnight). Non-finite numbers, invalid `Date` objects and
+ * unparseable strings throw, so no NaN ever reaches native code.
  *
- * @see NativeDateModule.parse - Native C++ alternative (available via NativeDateModule directly)
+ * @throws Error if the input is not a valid date
  */
 function toTimestamp(date: DateInput): number {
   // typeof is ~10-20x faster than property lookup
-  if (typeof date === 'number') return date;
-  if (typeof date === 'string') return Date.parse(date);
-  return date.getTime();
+  let timestamp: number;
+  if (typeof date === 'number') {
+    timestamp = date;
+  } else if (typeof date === 'string') {
+    timestamp = NativeDateModule.parse(date);
+  } else {
+    timestamp = date.getTime();
+  }
+  if (!Number.isFinite(timestamp)) {
+    throw new Error(`Invalid date input: ${String(date)}`);
+  }
+  return timestamp;
 }
 
 /**
@@ -403,41 +434,43 @@ export function now(): number {
 }
 
 /**
- * Parse an ISO 8601 date string into a timestamp
+ * Parse an ISO 8601 date string into a timestamp (milliseconds since the Unix epoch).
  *
- * Uses JS Date.parse() instead of native C++ because:
- * - Avoids bridge crossing overhead for simple ISO 8601 parsing
- * - JS engine's built-in parser is highly optimized for standard formats
- * - No performance benefit from native for this simple operation
+ * Parsing runs in native C++ (not `Date.parse()`), which gives the same result on
+ * every platform and JS engine:
+ * - `'2024-12-25'` (date-only) is **local midnight**, unlike `Date.parse()` which
+ *   treats it as UTC midnight.
+ * - `'2024-12-25T10:30:00'` (no offset) is local time.
+ * - `'2024-12-25T10:30:00Z'` / `'2024-12-25T10:30:00+02:00'` are absolute instants.
  *
- * For custom format parsing (e.g., 'MM/dd/yyyy'), use `parseFormat()` which uses native C++.
+ * Every function that accepts a `DateInput` string uses this same parser, so
+ * `startOfDay('2024-12-25')` equals `startOfDay(parse('2024-12-25'))`.
  *
- * @see NativeDateModule.parse - Native C++ alternative (use directly if needed)
- * @see parseFormat - For custom format patterns (uses native C++)
+ * For custom format parsing (e.g., 'MM/dd/yyyy'), use `parseFormat()`.
  *
- * @throws Error if the date string is invalid
+ * @throws Error if the string is not a valid ISO 8601 date. Use `tryParse()` to
+ * get `null` instead of an exception.
+ *
+ * @see tryParse - Non-throwing variant
+ * @see parseFormat - For custom format patterns
  */
 export function parse(dateString: string): number {
-  // Use native C++ parse for consistent local time handling
-  // (JS Date.parse treats date-only strings as UTC, native treats them as local)
   return NativeDateModule.parse(dateString);
 }
 
 /**
- * Safely parse a date string, returning null if invalid
+ * Safely parse an ISO 8601 date string, returning `null` if it is invalid.
  *
- * Uses native C++ parse for consistent local time handling
- * (JS Date.parse treats date-only strings as UTC, native treats them as local)
+ * Same parser and local-time semantics as `parse()`; the only difference is the
+ * error policy: invalid input yields `null` instead of an exception.
  *
- * @see parseFormat - For custom format patterns (uses native C++)
+ * @see parse - Throwing variant
+ * @see tryParseFormat - For custom format patterns
  */
 export function tryParse(dateString: string): number | null {
-  // Basic format validation - must start with YYYY-MM-DD pattern
-  if (!/^\d{4}-\d{2}-\d{2}/.test(dateString)) {
-    return null;
-  }
   try {
-    return NativeDateModule.parse(dateString);
+    const timestamp = NativeDateModule.parse(dateString);
+    return Number.isFinite(timestamp) ? timestamp : null;
   } catch {
     return null;
   }
@@ -494,23 +527,30 @@ export function tryParseFormat(
   pattern: string
 ): number | null {
   const result = NativeDateModule.tryParseFormat(dateString, pattern);
-  return isNaN(result) ? null : result;
+  return Number.isFinite(result) ? result : null;
 }
 
 /**
- * Create a timestamp from date components
+ * `Date.UTC()` and `new Date(y, m, d)` map years 0-99 to 1900-1999. The
+ * component constructors below take the year literally, so `{ year: 99 }` is
+ * year 99, not 1999.
+ */
+const MAX_TWO_DIGIT_YEAR = 99;
+
+/**
+ * Create a timestamp from date components interpreted as UTC.
  *
  * Uses JS Date.UTC() instead of native C++ because:
  * - Avoids bridge crossing overhead for simple timestamp creation
  * - Date.UTC() is a single optimized call with no parsing complexity
  * - Native alternative would require serializing/deserializing the components object
  *
+ * The year is taken literally: `{ year: 99 }` is the year 99, not 1999.
+ *
  * @param components - Object with year, month, day, and optional time fields
  * @returns Timestamp in milliseconds (UTC)
  *
  * Note: month is 1-indexed (1-12), unlike JS Date which uses 0-indexed months
- *
- * @see NativeDateModule - Native module available for direct access if needed
  */
 export function fromComponents(components: {
   year: number;
@@ -532,85 +572,79 @@ export function fromComponents(components: {
   } = components;
 
   // Use Date.UTC to create timestamp (month is 0-indexed in Date)
-  return Date.UTC(year, month - 1, day, hour, minute, second, millisecond);
+  const date = new Date(
+    Date.UTC(year, month - 1, day, hour, minute, second, millisecond)
+  );
+  if (year >= 0 && year <= MAX_TWO_DIGIT_YEAR) {
+    date.setUTCFullYear(year, month - 1, day);
+  }
+  return date.getTime();
 }
 
 export function format(date: DateInput, pattern: string): string {
   // Optimized: strings go directly to C++ (single bridge crossing)
   if (typeof date === 'string')
     return NativeDateModule.formatFromString(date, pattern);
-  if (typeof date === 'number') return NativeDateModule.format(date, pattern);
-  return NativeDateModule.format(date.getTime(), pattern);
+  return NativeDateModule.format(toTimestamp(date), pattern);
 }
 
 export function formatUTC(date: DateInput, pattern: string): string {
   // Optimized: strings go directly to C++ (single bridge crossing)
   if (typeof date === 'string')
     return NativeDateModule.formatUTCFromString(date, pattern);
-  if (typeof date === 'number')
-    return NativeDateModule.formatUTC(date, pattern);
-  return NativeDateModule.formatUTC(date.getTime(), pattern);
+  return NativeDateModule.formatUTC(toTimestamp(date), pattern);
 }
 
 // Getters - optimized for single bridge crossing with strings
 export function getComponents(date: DateInput): DateComponents {
   if (typeof date === 'string')
     return NativeDateModule.getComponentsFromString(date);
-  if (typeof date === 'number') return NativeDateModule.getComponents(date);
-  return NativeDateModule.getComponents(date.getTime());
+  return NativeDateModule.getComponents(toTimestamp(date));
 }
 
 export function getYear(date: DateInput): number {
   if (typeof date === 'string') return NativeDateModule.getYearFromString(date);
-  if (typeof date === 'number') return NativeDateModule.getYear(date);
-  return NativeDateModule.getYear(date.getTime());
+  return NativeDateModule.getYear(toTimestamp(date));
 }
 
 export function getMonth(date: DateInput): number {
   if (typeof date === 'string')
     return NativeDateModule.getMonthFromString(date);
-  if (typeof date === 'number') return NativeDateModule.getMonth(date);
-  return NativeDateModule.getMonth(date.getTime());
+  return NativeDateModule.getMonth(toTimestamp(date));
 }
 
 export function getDate(date: DateInput): number {
   if (typeof date === 'string') return NativeDateModule.getDateFromString(date);
-  if (typeof date === 'number') return NativeDateModule.getDate(date);
-  return NativeDateModule.getDate(date.getTime());
+  return NativeDateModule.getDate(toTimestamp(date));
 }
 
 export function getDay(date: DateInput): number {
   if (typeof date === 'string') return NativeDateModule.getDayFromString(date);
-  if (typeof date === 'number') return NativeDateModule.getDay(date);
-  return NativeDateModule.getDay(date.getTime());
+  return NativeDateModule.getDay(toTimestamp(date));
 }
 
 export function getHours(date: DateInput): number {
   if (typeof date === 'string')
     return NativeDateModule.getHoursFromString(date);
-  if (typeof date === 'number') return NativeDateModule.getHours(date);
-  return NativeDateModule.getHours(date.getTime());
+  return NativeDateModule.getHours(toTimestamp(date));
 }
 
 export function getMinutes(date: DateInput): number {
   if (typeof date === 'string')
     return NativeDateModule.getMinutesFromString(date);
-  if (typeof date === 'number') return NativeDateModule.getMinutes(date);
-  return NativeDateModule.getMinutes(date.getTime());
+  return NativeDateModule.getMinutes(toTimestamp(date));
 }
 
 export function getSeconds(date: DateInput): number {
   if (typeof date === 'string')
     return NativeDateModule.getSecondsFromString(date);
-  if (typeof date === 'number') return NativeDateModule.getSeconds(date);
-  return NativeDateModule.getSeconds(date.getTime());
+  return NativeDateModule.getSeconds(toTimestamp(date));
 }
 
 export function getMilliseconds(date: DateInput): number {
   if (typeof date === 'string')
     return NativeDateModule.getMillisecondsFromString(date);
-  if (typeof date === 'number') return NativeDateModule.getMilliseconds(date);
-  return NativeDateModule.getMilliseconds(date.getTime());
+  return NativeDateModule.getMilliseconds(toTimestamp(date));
 }
 
 // Date info - use native C++ for performance
@@ -618,16 +652,20 @@ export function getDaysInMonth(date: DateInput): number {
   return NativeDateModule.getDaysInMonth(toTimestamp(date));
 }
 
+// Predicates never throw: invalid input is simply `false`.
 export function isLeapYear(date: DateInput): boolean {
-  return NativeDateModule.isLeapYear(toTimestamp(date));
+  const timestamp = toTimestampOrNull(date);
+  return timestamp !== null && NativeDateModule.isLeapYear(timestamp);
 }
 
 export function isWeekend(date: DateInput): boolean {
-  return NativeDateModule.isWeekend(toTimestamp(date));
+  const timestamp = toTimestampOrNull(date);
+  return timestamp !== null && NativeDateModule.isWeekend(timestamp);
 }
 
 export function isValid(date: DateInput): boolean {
-  return NativeDateModule.isValid(toTimestamp(date));
+  const timestamp = toTimestampOrNull(date);
+  return timestamp !== null && NativeDateModule.isValid(timestamp);
 }
 
 // Arithmetic
@@ -643,13 +681,17 @@ export function subtract(
   return NativeDateModule.subtract(toTimestamp(date), amount, unit);
 }
 
-// Comparisons - use native C++ for consistency
+// Comparisons - use native C++ for consistency; invalid input yields `false`
 export function isBefore(date1: DateInput, date2: DateInput): boolean {
-  return NativeDateModule.isBefore(toTimestamp(date1), toTimestamp(date2));
+  const t1 = toTimestampOrNull(date1);
+  const t2 = toTimestampOrNull(date2);
+  return t1 !== null && t2 !== null && NativeDateModule.isBefore(t1, t2);
 }
 
 export function isAfter(date1: DateInput, date2: DateInput): boolean {
-  return NativeDateModule.isAfter(toTimestamp(date1), toTimestamp(date2));
+  const t1 = toTimestampOrNull(date1);
+  const t2 = toTimestampOrNull(date2);
+  return t1 !== null && t2 !== null && NativeDateModule.isAfter(t1, t2);
 }
 
 export function isSame(
@@ -657,7 +699,9 @@ export function isSame(
   date2: DateInput,
   unit: TimeUnit
 ): boolean {
-  return NativeDateModule.isSame(toTimestamp(date1), toTimestamp(date2), unit);
+  const t1 = toTimestampOrNull(date1);
+  const t2 = toTimestampOrNull(date2);
+  return t1 !== null && t2 !== null && NativeDateModule.isSame(t1, t2, unit);
 }
 
 // Helpers
@@ -690,12 +734,28 @@ export function clamp(
   );
 }
 
-export function min(timestamps: number[]): number {
-  return NativeDateModule.min(timestamps);
+/**
+ * Return the earliest of the given dates as a timestamp.
+ *
+ * @throws Error if `dates` is empty or contains an invalid date
+ */
+export function min(dates: DateInput[]): number {
+  if (dates.length === 0) {
+    throw new Error('min() requires a non-empty array of dates');
+  }
+  return NativeDateModule.min(dates.map(toTimestamp));
 }
 
-export function max(timestamps: number[]): number {
-  return NativeDateModule.max(timestamps);
+/**
+ * Return the latest of the given dates as a timestamp.
+ *
+ * @throws Error if `dates` is empty or contains an invalid date
+ */
+export function max(dates: DateInput[]): number {
+  if (dates.length === 0) {
+    throw new Error('max() requires a non-empty array of dates');
+  }
+  return NativeDateModule.max(dates.map(toTimestamp));
 }
 
 // Relative time formatting
@@ -1142,30 +1202,49 @@ export function formatInUTC(date: DateInput, pattern: string): string {
 }
 
 // Additional date-fns-like predicates
-// These use getComponents() for fast local time comparison (native C++ call)
+// These use getComponents() for fast local time comparison (native C++ call).
+// Predicates never throw: invalid input is simply `false`.
+
+/**
+ * Local components of a DateInput, or `null` when the input is invalid.
+ * Strings keep the single-crossing `getComponentsFromString` path.
+ */
+function componentsOrNull(date: DateInput): DateComponents | null {
+  if (typeof date === 'string') {
+    try {
+      return NativeDateModule.getComponentsFromString(date);
+    } catch {
+      return null;
+    }
+  }
+  const timestamp = typeof date === 'number' ? date : date.getTime();
+  return Number.isFinite(timestamp)
+    ? NativeDateModule.getComponents(timestamp)
+    : null;
+}
+
+function isSameLocalDay(d: DateComponents, o: DateComponents): boolean {
+  return d.year === o.year && d.month === o.month && d.day === o.day;
+}
+
 export function isToday(date: DateInput): boolean {
-  const d = getComponents(date);
-  const n = getComponents(now());
-  return d.year === n.year && d.month === n.month && d.day === n.day;
+  const d = componentsOrNull(date);
+  return d !== null && isSameLocalDay(d, NativeDateModule.getComponents(now()));
 }
 
 export function isTomorrow(date: DateInput): boolean {
-  const d = getComponents(date);
-  const tomorrow = getComponents(addDays(now(), 1));
+  const d = componentsOrNull(date);
   return (
-    d.year === tomorrow.year &&
-    d.month === tomorrow.month &&
-    d.day === tomorrow.day
+    d !== null &&
+    isSameLocalDay(d, NativeDateModule.getComponents(addDays(now(), 1)))
   );
 }
 
 export function isYesterday(date: DateInput): boolean {
-  const d = getComponents(date);
-  const yesterday = getComponents(subDays(now(), 1));
+  const d = componentsOrNull(date);
   return (
-    d.year === yesterday.year &&
-    d.month === yesterday.month &&
-    d.day === yesterday.day
+    d !== null &&
+    isSameLocalDay(d, NativeDateModule.getComponents(subDays(now(), 1)))
   );
 }
 
@@ -1177,36 +1256,47 @@ export function isFuture(date: DateInput): boolean {
   return isAfter(date, now());
 }
 
-// These use getComponents() for fast local time comparison (native C++ call)
 export function isSameDay(date1: DateInput, date2: DateInput): boolean {
-  const d1 = getComponents(date1);
-  const d2 = getComponents(date2);
-  return d1.year === d2.year && d1.month === d2.month && d1.day === d2.day;
+  const d1 = componentsOrNull(date1);
+  const d2 = componentsOrNull(date2);
+  return d1 !== null && d2 !== null && isSameLocalDay(d1, d2);
 }
 
 export function isSameMonth(date1: DateInput, date2: DateInput): boolean {
-  const d1 = getComponents(date1);
-  const d2 = getComponents(date2);
-  return d1.year === d2.year && d1.month === d2.month;
+  const d1 = componentsOrNull(date1);
+  const d2 = componentsOrNull(date2);
+  return (
+    d1 !== null && d2 !== null && d1.year === d2.year && d1.month === d2.month
+  );
 }
 
 export function isSameYear(date1: DateInput, date2: DateInput): boolean {
-  const d1 = getComponents(date1);
-  const d2 = getComponents(date2);
-  return d1.year === d2.year;
+  const d1 = componentsOrNull(date1);
+  const d2 = componentsOrNull(date2);
+  return d1 !== null && d2 !== null && d1.year === d2.year;
 }
 
-// Timezone-aware predicates (InTz) - Native implementations
+// Timezone-aware predicates (InTz) - Native implementations.
+// Invalid dates yield `false`; an invalid timezone name still throws (native).
 export function isTodayInTz(date: DateInput, timezone: Timezone): boolean {
-  return NativeDateModule.isTodayInTz(toTimestamp(date), timezone);
+  const timestamp = toTimestampOrNull(date);
+  return (
+    timestamp !== null && NativeDateModule.isTodayInTz(timestamp, timezone)
+  );
 }
 
 export function isTomorrowInTz(date: DateInput, timezone: Timezone): boolean {
-  return NativeDateModule.isTomorrowInTz(toTimestamp(date), timezone);
+  const timestamp = toTimestampOrNull(date);
+  return (
+    timestamp !== null && NativeDateModule.isTomorrowInTz(timestamp, timezone)
+  );
 }
 
 export function isYesterdayInTz(date: DateInput, timezone: Timezone): boolean {
-  return NativeDateModule.isYesterdayInTz(toTimestamp(date), timezone);
+  const timestamp = toTimestampOrNull(date);
+  return (
+    timestamp !== null && NativeDateModule.isYesterdayInTz(timestamp, timezone)
+  );
 }
 
 export function isSameDayInTz(
@@ -1214,10 +1304,12 @@ export function isSameDayInTz(
   date2: DateInput,
   timezone: Timezone
 ): boolean {
-  return NativeDateModule.isSameDayInTz(
-    toTimestamp(date1),
-    toTimestamp(date2),
-    timezone
+  const t1 = toTimestampOrNull(date1);
+  const t2 = toTimestampOrNull(date2);
+  return (
+    t1 !== null &&
+    t2 !== null &&
+    NativeDateModule.isSameDayInTz(t1, t2, timezone)
   );
 }
 
@@ -1226,10 +1318,12 @@ export function isSameMonthInTz(
   date2: DateInput,
   timezone: Timezone
 ): boolean {
-  return NativeDateModule.isSameMonthInTz(
-    toTimestamp(date1),
-    toTimestamp(date2),
-    timezone
+  const t1 = toTimestampOrNull(date1);
+  const t2 = toTimestampOrNull(date2);
+  return (
+    t1 !== null &&
+    t2 !== null &&
+    NativeDateModule.isSameMonthInTz(t1, t2, timezone)
   );
 }
 
@@ -1238,10 +1332,12 @@ export function isSameYearInTz(
   date2: DateInput,
   timezone: Timezone
 ): boolean {
-  return NativeDateModule.isSameYearInTz(
-    toTimestamp(date1),
-    toTimestamp(date2),
-    timezone
+  const t1 = toTimestampOrNull(date1);
+  const t2 = toTimestampOrNull(date2);
+  return (
+    t1 !== null &&
+    t2 !== null &&
+    NativeDateModule.isSameYearInTz(t1, t2, timezone)
   );
 }
 
@@ -1331,7 +1427,7 @@ function fromComponentsLocal(components: {
     millisecond = 0,
   } = components;
   // Use new Date() constructor which interprets as local time (month is 0-indexed)
-  return new Date(
+  const date = new Date(
     year,
     month - 1,
     day,
@@ -1339,7 +1435,12 @@ function fromComponentsLocal(components: {
     minute,
     second,
     millisecond
-  ).getTime();
+  );
+  if (year >= 0 && year <= MAX_TWO_DIGIT_YEAR) {
+    // The constructor maps 0-99 to 1900-1999; setFullYear takes the year literally
+    date.setFullYear(year, month - 1, day);
+  }
+  return date.getTime();
 }
 
 // Setters (immutable - return new timestamp)
