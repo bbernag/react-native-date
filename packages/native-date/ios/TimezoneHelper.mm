@@ -1,35 +1,110 @@
 #import <Foundation/Foundation.h>
 #include "TimezoneHelper.hpp"
+
+#include <chrono>
+#include <mutex>
 #include <unordered_map>
 
 namespace margelo::nitro::rnpackages_nativedate {
 
-std::string TimezoneHelper::getSystemTimezone() {
-    @autoreleasepool {
-        NSTimeZone *systemZone = [NSTimeZone systemTimeZone];
-        return std::string([systemZone.name UTF8String]);
-    }
+namespace {
+
+constexpr std::size_t kZoneCacheCapacity = 64;
+constexpr auto kSystemZoneTtl = std::chrono::seconds(1);
+
+std::mutex& zoneCacheMutex() {
+    static std::mutex mutex;
+    return mutex;
 }
 
-int TimezoneHelper::getOffsetForTimestamp(const std::string& timezone, int64_t timestampMs) {
-    @autoreleasepool {
-        // Normalize timezone abbreviations first
-        std::string normalizedTz = normalizeTimezone(timezone);
+/**
+ * IANA id -> NSTimeZone. C++ containers do not retain Objective-C objects, so
+ * each stored pointer is CFRetain'd on insert and CFRelease'd on eviction.
+ * Callers may use the returned zone after releasing the mutex: ARC retains
+ * the return value, and the cache holds its own retain.
+ */
+std::unordered_map<std::string, NSTimeZone*>& zoneCache() {
+    static std::unordered_map<std::string, NSTimeZone*> cache;
+    return cache;
+}
 
-        NSString *tzName = [NSString stringWithUTF8String:normalizedTz.c_str()];
-        NSTimeZone *tz = [NSTimeZone timeZoneWithName:tzName];
+void releaseCachedZones(std::unordered_map<std::string, NSTimeZone*>& cache) {
+    for (auto& entry : cache) {
+        CFRelease((__bridge CFTypeRef)entry.second);
+    }
+    cache.clear();
+}
 
-        if (tz == nil) {
-            // Fallback to system timezone if invalid
-            tz = [NSTimeZone systemTimeZone];
+/** Resolve `ianaZone` through the cache. nil when Foundation does not know the name. */
+NSTimeZone* cachedZone(const std::string& ianaZone) {
+    {
+        std::lock_guard<std::mutex> lock(zoneCacheMutex());
+        auto it = zoneCache().find(ianaZone);
+        if (it != zoneCache().end()) {
+            return it->second;
         }
+    }
 
-        // Create NSDate from timestamp
-        NSDate *date = [NSDate dateWithTimeIntervalSince1970:(timestampMs / 1000.0)];
+    NSString* name = [NSString stringWithUTF8String:ianaZone.c_str()];
+    if (name == nil) {
+        return nil;
+    }
+    NSTimeZone* zone = [NSTimeZone timeZoneWithName:name];
+    if (zone == nil) {
+        return nil;
+    }
 
-        // Get offset in seconds, convert to minutes
-        // NSTimeZone automatically handles DST for the given date
-        NSInteger offsetSeconds = [tz secondsFromGMTForDate:date];
+    std::lock_guard<std::mutex> lock(zoneCacheMutex());
+    auto& cache = zoneCache();
+    auto it = cache.find(ianaZone);
+    if (it != cache.end()) {
+        return it->second;
+    }
+    if (cache.size() >= kZoneCacheCapacity) {
+        // Bounded without bookkeeping: drop everything and refill on demand.
+        releaseCachedZones(cache);
+    }
+    CFRetain((__bridge CFTypeRef)zone);
+    cache.emplace(ianaZone, zone);
+    return zone;
+}
+
+} // namespace
+
+std::string TimezoneHelper::getSystemTimezone() {
+    static std::mutex mutex;
+    static std::string cachedName;
+    static std::chrono::steady_clock::time_point cachedAt;
+
+    const auto now = std::chrono::steady_clock::now();
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (!cachedName.empty() && now - cachedAt < kSystemZoneTtl) {
+            return cachedName;
+        }
+    }
+
+    std::string fresh;
+    @autoreleasepool {
+        const char* utf8 = [NSTimeZone systemTimeZone].name.UTF8String;
+        fresh = utf8 != nullptr ? utf8 : "UTC";
+    }
+
+    std::lock_guard<std::mutex> lock(mutex);
+    cachedName = fresh;
+    cachedAt = now;
+    return fresh;
+}
+
+std::optional<int> TimezoneHelper::getOffsetForTimestamp(const std::string& ianaZone, int64_t timestampMs) {
+    @autoreleasepool {
+        NSTimeZone* zone = cachedZone(ianaZone);
+        if (zone == nil) {
+            return std::nullopt;
+        }
+        NSDate* date = [NSDate dateWithTimeIntervalSince1970:(timestampMs / 1000.0)];
+        // secondsFromGMTForDate: already accounts for DST at that instant.
+        NSInteger offsetSeconds = [zone secondsFromGMTForDate:date];
         return static_cast<int>(offsetSeconds / 60);
     }
 }
@@ -37,87 +112,22 @@ int TimezoneHelper::getOffsetForTimestamp(const std::string& timezone, int64_t t
 std::vector<std::string> TimezoneHelper::getAvailableTimezones() {
     @autoreleasepool {
         std::vector<std::string> result;
-
-        NSArray<NSString *> *knownTimezones = [NSTimeZone knownTimeZoneNames];
+        NSArray<NSString*>* knownTimezones = [NSTimeZone knownTimeZoneNames];
         result.reserve([knownTimezones count]);
-
-        for (NSString *tz in knownTimezones) {
-            result.push_back(std::string([tz UTF8String]));
+        for (NSString* name in knownTimezones) {
+            const char* utf8 = name.UTF8String;
+            if (utf8 != nullptr) {
+                result.emplace_back(utf8);
+            }
         }
-
         return result;
     }
 }
 
-bool TimezoneHelper::isValidTimezone(const std::string& timezone) {
+bool TimezoneHelper::isValidTimezone(const std::string& ianaZone) {
     @autoreleasepool {
-        std::string normalizedTz = normalizeTimezone(timezone);
-        NSString *tzName = [NSString stringWithUTF8String:normalizedTz.c_str()];
-        NSTimeZone *tz = [NSTimeZone timeZoneWithName:tzName];
-        return tz != nil;
+        return cachedZone(ianaZone) != nil;
     }
-}
-
-std::string TimezoneHelper::normalizeTimezone(const std::string& timezone) {
-    // Map common abbreviations to IANA names
-    static const std::unordered_map<std::string, std::string> abbreviations = {
-        // US timezones
-        {"EST", "America/New_York"},
-        {"EDT", "America/New_York"},
-        {"CST", "America/Chicago"},
-        {"CDT", "America/Chicago"},
-        {"MST", "America/Denver"},
-        {"MDT", "America/Denver"},
-        {"PST", "America/Los_Angeles"},
-        {"PDT", "America/Los_Angeles"},
-        {"AKST", "America/Anchorage"},
-        {"AKDT", "America/Anchorage"},
-        {"HST", "Pacific/Honolulu"},
-        // European timezones
-        {"GMT", "Europe/London"},
-        {"BST", "Europe/London"},
-        {"WET", "Europe/London"},
-        {"WEST", "Europe/London"},
-        {"CET", "Europe/Paris"},
-        {"CEST", "Europe/Paris"},
-        {"EET", "Europe/Helsinki"},
-        {"EEST", "Europe/Helsinki"},
-        {"MSK", "Europe/Moscow"},
-        // Asian timezones
-        {"IST", "Asia/Kolkata"},
-        {"JST", "Asia/Tokyo"},
-        {"KST", "Asia/Seoul"},
-        {"HKT", "Asia/Hong_Kong"},
-        {"SGT", "Asia/Singapore"},
-        {"ICT", "Asia/Bangkok"},
-        // Australian timezones
-        {"AEST", "Australia/Sydney"},
-        {"AEDT", "Australia/Sydney"},
-        {"ACST", "Australia/Adelaide"},
-        {"ACDT", "Australia/Adelaide"},
-        {"AWST", "Australia/Perth"},
-        // NZ
-        {"NZST", "Pacific/Auckland"},
-        {"NZDT", "Pacific/Auckland"},
-    };
-
-    auto it = abbreviations.find(timezone);
-    if (it != abbreviations.end()) {
-        return it->second;
-    }
-
-    // Check if it's already a valid IANA name by trying to create a timezone
-    @autoreleasepool {
-        NSString *tzName = [NSString stringWithUTF8String:timezone.c_str()];
-        NSTimeZone *tz = [NSTimeZone timeZoneWithName:tzName];
-        if (tz != nil) {
-            // Return the canonical name from the system
-            return std::string([tz.name UTF8String]);
-        }
-    }
-
-    // Return as-is if nothing matches
-    return timezone;
 }
 
 } // namespace margelo::nitro::rnpackages_nativedate

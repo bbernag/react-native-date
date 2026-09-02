@@ -1,53 +1,44 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
-#include <cstdint>
 
 namespace margelo::nitro::rnpackages_nativedate {
 
 /**
- * Platform-specific timezone helper
- * Uses NSTimeZone on iOS and java.time.ZoneId on Android
- * Both platforms have full IANA timezone database with DST rules
+ * Platform timezone helper: NSTimeZone on iOS, java.util.TimeZone on Android.
+ * Both are backed by the full IANA database with DST rules.
+ *
+ * Every method expects an already-normalized IANA identifier (see
+ * core/ZoneNames.hpp): the helper never maps abbreviations and never
+ * substitutes the system zone or GMT for a name it does not know.
+ *
+ * Both implementations keep a small, mutex-guarded cache of platform zone
+ * objects keyed by identifier, so repeated lookups of the same zone cost one
+ * offset query rather than a name resolution.
  */
 class TimezoneHelper {
 public:
     /**
-     * Get the device's current timezone identifier (IANA name)
-     * e.g., "America/Los_Angeles", "Europe/Paris"
+     * The device's current timezone identifier (IANA name),
+     * e.g. "America/Los_Angeles". Cached for about one second.
      */
     static std::string getSystemTimezone();
 
     /**
-     * Get the UTC offset in minutes for a specific timezone at a specific timestamp
-     * This properly handles DST transitions
-     *
-     * @param timezone IANA timezone name (e.g., "America/Los_Angeles")
-     * @param timestampMs Unix timestamp in milliseconds
-     * @return Offset in minutes (positive = east of UTC, negative = west)
+     * UTC offset in minutes for `ianaZone` at `timestampMs`, DST included
+     * (positive = east of UTC). std::nullopt when the platform does not know
+     * the zone.
      */
-    static int getOffsetForTimestamp(const std::string& timezone, int64_t timestampMs);
+    static std::optional<int> getOffsetForTimestamp(const std::string& ianaZone, int64_t timestampMs);
 
-    /**
-     * Get all available timezone identifiers
-     * @return Vector of IANA timezone names
-     */
+    /** Every timezone identifier the platform knows. */
     static std::vector<std::string> getAvailableTimezones();
 
-    /**
-     * Check if a timezone identifier is valid
-     * @param timezone IANA timezone name to validate
-     * @return true if the timezone is recognized by the system
-     */
-    static bool isValidTimezone(const std::string& timezone);
-
-    /**
-     * Normalize timezone abbreviations to IANA names
-     * e.g., "PST" -> "America/Los_Angeles"
-     * If already an IANA name, returns as-is
-     */
-    static std::string normalizeTimezone(const std::string& timezone);
+    /** Whether the platform recognises `ianaZone`. */
+    static bool isValidTimezone(const std::string& ianaZone);
 };
 
 } // namespace margelo::nitro::rnpackages_nativedate

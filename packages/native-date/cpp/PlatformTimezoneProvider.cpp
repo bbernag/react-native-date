@@ -1,17 +1,28 @@
 #include "PlatformTimezoneProvider.hpp"
 
 #include "TimezoneHelper.hpp"
+#include "core/ZoneNames.hpp"
 
 namespace margelo::nitro::rnpackages_nativedate {
 
 std::optional<int> PlatformTimezoneProvider::offsetMinutes(std::string_view zone, int64_t utcMs) const {
-    // TimezoneHelper normalizes abbreviations itself and falls back to the
-    // system zone for unknown names, so the result is always engaged.
+    // The core hands over normalized names (ZoneMath resolves them once per
+    // call) and the helper never substitutes another zone, so an unknown name
+    // comes back as std::nullopt.
     return TimezoneHelper::getOffsetForTimestamp(std::string(zone), utcMs);
 }
 
 bool PlatformTimezoneProvider::isValidZone(std::string_view zone) const {
-    return TimezoneHelper::isValidTimezone(std::string(zone));
+    // Reached directly from the public isValidTimezone(), so accept the same
+    // spellings the math APIs accept: UTC aliases and known abbreviations.
+    std::string normalized = nativedate::core::ZoneNames::normalize(zone);
+    if (normalized == nativedate::core::ZoneNames::kUtc) {
+        return true;
+    }
+    if (!nativedate::core::ZoneNames::isWellFormed(normalized)) {
+        return false;
+    }
+    return TimezoneHelper::isValidTimezone(normalized);
 }
 
 std::string PlatformTimezoneProvider::systemZone() const {

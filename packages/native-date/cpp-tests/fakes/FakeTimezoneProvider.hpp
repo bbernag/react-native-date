@@ -15,6 +15,9 @@ namespace nativedate::test {
  * Fixed-offset zones return a constant; DST zones carry a list of transitions
  * (UTC instant at which the offset changes) so a few real-world years can be
  * exercised deterministically without the platform tz database.
+ *
+ * Names are matched exactly (the core normalizes before calling the provider),
+ * so "PST" or "utc" are unknown here just as they would be to the platform.
  */
 class FakeTimezoneProvider final : public nativedate::core::TimezoneProvider {
 public:
@@ -30,9 +33,11 @@ public:
 
     FakeTimezoneProvider() {
         zones_["UTC"] = Zone{0, {}};
+        zones_["Etc/GMT"] = Zone{0, {}};
         zones_["Asia/Kolkata"] = Zone{330, {}};
         zones_["Asia/Tokyo"] = Zone{540, {}};
         zones_["Pacific/Honolulu"] = Zone{-600, {}};
+        zones_["Pacific/Kiritimati"] = Zone{840, {}};
         // America/New_York: EST (-300) / EDT (-240). Transitions are the real
         // 2023-2025 rules: 2nd Sunday of March 07:00 UTC, 1st Sunday of Nov 06:00 UTC.
         zones_["America/New_York"] = Zone{-300, {
@@ -43,10 +48,25 @@ public:
             {1741503600000, -240}, // 2025-03-09T07:00:00Z
             {1762063200000, -300}, // 2025-11-02T06:00:00Z
         }};
+        // America/Los_Angeles: PST (-480) / PDT (-420), same dates at 10:00 / 09:00 UTC.
+        zones_["America/Los_Angeles"] = Zone{-480, {
+            {1710064800000, -420}, // 2024-03-10T10:00:00Z
+            {1730624400000, -480}, // 2024-11-03T09:00:00Z
+        }};
         // Europe/Berlin: CET (+60) / CEST (+120), last Sunday of March/October 01:00 UTC.
         zones_["Europe/Berlin"] = Zone{60, {
             {1711846800000, 120}, // 2024-03-31T01:00:00Z
             {1729990800000, 60},  // 2024-10-27T01:00:00Z
+        }};
+        // Synthetic zones whose transition lands exactly on local midnight, the
+        // way historical America/Sao_Paulo rules did.
+        // Gap: clocks jump from 2024-06-02 00:00 to 01:00; that midnight never happens.
+        zones_["Test/MidnightGap"] = Zone{0, {
+            {1717286400000, 60}, // 2024-06-02T00:00:00Z
+        }};
+        // Overlap: clocks fall back from 2024-06-02 01:00 to 00:00; that midnight happens twice.
+        zones_["Test/MidnightOverlap"] = Zone{60, {
+            {1717286400000, 0}, // 2024-06-02T00:00:00Z
         }};
     }
 
