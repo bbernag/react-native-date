@@ -1,4 +1,5 @@
 #include "LocaleHelper.hpp"
+#include "JniEnv.hpp"
 #include <jni.h>
 #include <android/log.h>
 #include <optional>
@@ -25,38 +26,7 @@ using nativedate::core::utf8FromUtf16;
 
 LocaleStore LocaleHelper::store_;
 
-// Store JavaVM reference (set during JNI_OnLoad)
-static JavaVM* g_jvm = nullptr;
-
-// Call this from JNI_OnLoad
-extern "C" void LocaleHelper_setJavaVM(JavaVM* vm) {
-    g_jvm = vm;
-}
-
 namespace {
-
-// Get JNIEnv for current thread
-JNIEnv* getJNIEnv() {
-    if (g_jvm == nullptr) {
-        LOGE("JavaVM not initialized for LocaleHelper");
-        return nullptr;
-    }
-
-    JNIEnv* env = nullptr;
-    int status = g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-
-    if (status == JNI_EDETACHED) {
-        if (g_jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
-            LOGE("Failed to attach thread to JVM");
-            return nullptr;
-        }
-    } else if (status != JNI_OK) {
-        LOGE("Failed to get JNI environment");
-        return nullptr;
-    }
-
-    return env;
-}
 
 // True (and the exception cleared) when a Java exception is pending after `what`.
 bool clearException(JNIEnv* env, const char* what) {
@@ -395,7 +365,7 @@ constexpr jint kFrameCapacity = 64;
 } // namespace
 
 std::shared_ptr<const LocaleCache> LocaleHelper::loadDefaultFromPlatform() {
-    JNIEnv* env = getJNIEnv();
+    JNIEnv* env = JniEnv::get();
     LocalFrame frame(env, kFrameCapacity);
     if (!frame.ok()) {
         LOGE("Cannot load locale names: JNI environment not available");
@@ -418,7 +388,7 @@ std::string LocaleHelper::getCurrentLocale() {
     }
 
     // Names could not be loaded; still report the device language when JNI works.
-    JNIEnv* env = getJNIEnv();
+    JNIEnv* env = JniEnv::get();
     LocalFrame frame(env, kFrameCapacity);
     if (!frame.ok()) {
         return "en";
@@ -441,7 +411,7 @@ bool LocaleHelper::setLocale(const std::string& locale) {
         return false;
     }
 
-    JNIEnv* env = getJNIEnv();
+    JNIEnv* env = JniEnv::get();
     LocalFrame frame(env, kFrameCapacity);
     if (!frame.ok()) {
         return false;
@@ -463,7 +433,7 @@ bool LocaleHelper::setLocale(const std::string& locale) {
 }
 
 std::vector<std::string> LocaleHelper::getAvailableLocales() {
-    JNIEnv* env = getJNIEnv();
+    JNIEnv* env = JniEnv::get();
     LocalFrame frame(env, kFrameCapacity);
     if (!frame.ok()) {
         return {};
@@ -481,7 +451,7 @@ bool LocaleHelper::isValidLocale(const std::string& locale) {
         return false;
     }
 
-    JNIEnv* env = getJNIEnv();
+    JNIEnv* env = JniEnv::get();
     LocalFrame frame(env, kFrameCapacity);
     if (!frame.ok()) {
         return false;
@@ -499,7 +469,7 @@ std::string LocaleHelper::getLocaleDisplayName(const std::string& localeCode) {
         return localeCode;
     }
 
-    JNIEnv* env = getJNIEnv();
+    JNIEnv* env = JniEnv::get();
     LocalFrame frame(env, kFrameCapacity);
     if (!frame.ok()) {
         return localeCode;
@@ -528,7 +498,7 @@ LocaleInfoData LocaleHelper::getLocaleInfo(const std::string& localeCode) {
         return info;
     }
 
-    JNIEnv* env = getJNIEnv();
+    JNIEnv* env = JniEnv::get();
     LocalFrame frame(env, kFrameCapacity);
     if (!frame.ok()) {
         return info;
@@ -556,7 +526,7 @@ LocaleInfoData LocaleHelper::getLocaleInfo(const std::string& localeCode) {
 std::vector<LocaleInfoData> LocaleHelper::getAvailableLocalesInfo() {
     std::vector<std::string> languages;
     {
-        JNIEnv* env = getJNIEnv();
+        JNIEnv* env = JniEnv::get();
         LocalFrame frame(env, kFrameCapacity);
         if (!frame.ok()) {
             return {};

@@ -16,7 +16,7 @@ class NativeDatePackage : BaseReactPackage() {
 
     companion object {
         init {
-            System.loadLibrary("rnpackages_nativedate")
+            rnpackages_nativedateOnLoad.initializeNative()
         }
     }
 }

@@ -1,4 +1,5 @@
 #include "TimezoneHelper.hpp"
+#include "JniEnv.hpp"
 
 #include "core/ZoneNames.hpp"
 
@@ -31,41 +32,10 @@
 
 namespace margelo::nitro::rnpackages_nativedate {
 
-// Store JavaVM reference (set during JNI_OnLoad)
-static JavaVM* g_jvm = nullptr;
-
-// Call this from JNI_OnLoad
-extern "C" void TimezoneHelper_setJavaVM(JavaVM* vm) {
-    g_jvm = vm;
-}
-
 namespace {
 
 constexpr std::size_t kZoneCacheCapacity = 64;
 constexpr auto kSystemZoneTtl = std::chrono::seconds(1);
-
-// Get JNIEnv for current thread
-JNIEnv* getJNIEnv() {
-    if (g_jvm == nullptr) {
-        LOGE("JavaVM not initialized");
-        return nullptr;
-    }
-
-    JNIEnv* env = nullptr;
-    int status = g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-
-    if (status == JNI_EDETACHED) {
-        if (g_jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
-            LOGE("Failed to attach thread to JVM");
-            return nullptr;
-        }
-    } else if (status != JNI_OK) {
-        LOGE("Failed to get JNI environment");
-        return nullptr;
-    }
-
-    return env;
-}
 
 /** Clear a pending Java exception. Returns true when one was pending. */
 bool clearException(JNIEnv* env) {
@@ -226,7 +196,7 @@ std::string TimezoneHelper::getSystemTimezone() {
         }
     }
 
-    JNIEnv* env = getJNIEnv();
+    JNIEnv* env = JniEnv::get();
     if (env == nullptr) {
         return "UTC";
     }
@@ -259,7 +229,7 @@ std::string TimezoneHelper::getSystemTimezone() {
 }
 
 std::optional<int> TimezoneHelper::getOffsetForTimestamp(const std::string& ianaZone, int64_t timestampMs) {
-    JNIEnv* env = getJNIEnv();
+    JNIEnv* env = JniEnv::get();
     if (env == nullptr) {
         return std::nullopt;
     }
@@ -288,7 +258,7 @@ std::optional<int> TimezoneHelper::getOffsetForTimestamp(const std::string& iana
 std::vector<std::string> TimezoneHelper::getAvailableTimezones() {
     std::vector<std::string> result;
 
-    JNIEnv* env = getJNIEnv();
+    JNIEnv* env = JniEnv::get();
     if (env == nullptr) {
         return result;
     }
@@ -326,7 +296,7 @@ std::vector<std::string> TimezoneHelper::getAvailableTimezones() {
 }
 
 bool TimezoneHelper::isValidTimezone(const std::string& ianaZone) {
-    JNIEnv* env = getJNIEnv();
+    JNIEnv* env = JniEnv::get();
     if (env == nullptr) {
         return false;
     }

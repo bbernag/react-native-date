@@ -1,4 +1,5 @@
 #include "RelativeTimeHelper.hpp"
+#include "JniEnv.hpp"
 #include "LocaleHelper.hpp"
 #include "core/RelativeBuckets.hpp"
 #include <jni.h>
@@ -16,37 +17,6 @@ using nativedate::core::DurationParts;
 using nativedate::core::RelativeBucket;
 using nativedate::core::RelativeDirection;
 using nativedate::core::RelativeUnit;
-
-// Store JavaVM reference (set during JNI_OnLoad)
-static JavaVM* g_jvm = nullptr;
-
-// Call this from JNI_OnLoad
-extern "C" void RelativeTimeHelper_setJavaVM(JavaVM* vm) {
-    g_jvm = vm;
-}
-
-// Get JNIEnv for current thread
-static JNIEnv* getJNIEnv() {
-    if (g_jvm == nullptr) {
-        LOGE("JavaVM not initialized for RelativeTimeHelper");
-        return nullptr;
-    }
-
-    JNIEnv* env = nullptr;
-    int status = g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-
-    if (status == JNI_EDETACHED) {
-        if (g_jvm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
-            LOGE("Failed to attach thread to JVM");
-            return nullptr;
-        }
-    } else if (status != JNI_OK) {
-        LOGE("Failed to get JNI environment");
-        return nullptr;
-    }
-
-    return env;
-}
 
 namespace {
 
@@ -330,7 +300,7 @@ std::string RelativeTimeHelper::formatDistance(double timestamp, double baseTime
     // Throws std::invalid_argument for non-finite input before touching JNI.
     const RelativeBucket bucket = nativedate::core::relativeBucket(timestamp, baseTimestamp);
 
-    if (JNIEnv* env = getJNIEnv()) {
+    if (JNIEnv* env = JniEnv::get()) {
         if (auto result = formatDistanceIcu(env, bucket, addSuffix)) {
             return *result;
         }
@@ -342,7 +312,7 @@ std::string RelativeTimeHelper::formatDuration(double milliseconds) {
     // Throws std::invalid_argument for NaN/Inf; clamps to kMaxDurationMs.
     const DurationParts parts = nativedate::core::decomposeDuration(milliseconds);
 
-    if (JNIEnv* env = getJNIEnv()) {
+    if (JNIEnv* env = JniEnv::get()) {
         if (auto result = formatDurationIcu(env, parts)) {
             return *result;
         }

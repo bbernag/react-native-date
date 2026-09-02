@@ -19,6 +19,7 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 # Source files
 set(CPP_SOURCES
   src/main/cpp/cpp-adapter.cpp
+  src/main/cpp/JniEnv.cpp
   src/main/cpp/TimezoneHelper.cpp
   src/main/cpp/LocaleHelper.cpp
   src/main/cpp/RelativeTimeHelper.cpp
