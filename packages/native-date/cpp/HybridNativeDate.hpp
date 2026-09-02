@@ -3,17 +3,19 @@
 #include "HybridNativeDateSpec.hpp"
 #include "DateComponents.hpp"
 #include "LocaleInfo.hpp"
+#include "PlatformLocaleProvider.hpp"
+#include "PlatformTimezoneProvider.hpp"
 #include <NitroModules/Promise.hpp>
-#include <chrono>
 #include <string>
 #include <vector>
-#include <unordered_map>
 #include <memory>
 
 namespace margelo::nitro::rnpackages_nativedate {
 
 /**
- * C++ implementation of HybridNativeDateSpec using std::chrono
+ * Nitro adapter for HybridNativeDateSpec.
+ * All date logic lives in the Nitro-free core (cpp/core); this class converts
+ * generated types at the boundary and forwards to it.
  */
 class HybridNativeDate : public HybridNativeDateSpec {
 public:
@@ -112,48 +114,10 @@ public:
     std::shared_ptr<Promise<std::vector<DateComponents>>> getComponentsManyAsync(const std::vector<double>& timestamps) override;
 
 private:
-    // Helper to get milliseconds for a time unit
-    static int64_t getMillisForUnit(TimeUnit unit);
-
-    // Helper to truncate timestamp to start of unit
-    static double truncateToUnit(double timestamp, TimeUnit unit);
-
-    // Internal date components (different from public DateComponents)
-    struct InternalDateComponents {
-        int year;
-        int month;
-        int day;
-        int hour;
-        int minute;
-        int second;
-        int millisecond;
-        int dayOfWeek; // 0 = Sunday, 6 = Saturday
-    };
-
-    // Convert timestamp to components (useUTC: true for UTC, false for local time)
-    static InternalDateComponents timestampToComponents(double timestamp, bool useUTC = true);
-
-    // Internal format helper
-    static std::string formatInternal(double timestamp, const std::string& pattern, bool useUTC);
-
-    // Convert components to timestamp (UTC)
-    static double componentsToTimestamp(const InternalDateComponents& components);
-
-    // Convert components to timestamp (local time)
-    static double componentsToTimestampLocal(const InternalDateComponents& components);
-
-    // Parse ISO8601 date string
-    static double parseISO8601(const std::string& dateString);
-
-    // Parse date string with custom format pattern (returns NaN on error)
-    static double parseWithFormat(const std::string& dateString, const std::string& pattern);
-
-    // Format helpers
-    static std::string padZero(int value, int width = 2);
-
-    // Day of week calculation (0 = Sunday, 6 = Saturday)
-    static int getDayOfWeek(double timestamp);
-
+    // Providers the core reads timezone data and localized names through.
+    // Both are stateless wrappers over the static platform helpers.
+    PlatformTimezoneProvider timezoneProvider_;
+    PlatformLocaleProvider localeProvider_;
 };
 
 } // namespace margelo::nitro::rnpackages_nativedate

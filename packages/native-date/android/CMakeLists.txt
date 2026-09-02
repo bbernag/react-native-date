@@ -16,6 +16,14 @@ set(CPP_SOURCES
   src/main/cpp/LocaleHelper.cpp
   src/main/cpp/RelativeTimeHelper.cpp
   ../cpp/HybridNativeDate.cpp
+  ../cpp/PlatformLocaleProvider.cpp
+  ../cpp/PlatformTimezoneProvider.cpp
+  ../cpp/core/Arithmetic.cpp
+  ../cpp/core/Civil.cpp
+  ../cpp/core/Formatter.cpp
+  ../cpp/core/IsoParser.cpp
+  ../cpp/core/PatternParser.cpp
+  ../cpp/core/ZoneMath.cpp
 )
 
 # Define C++ library
