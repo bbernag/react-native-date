@@ -27,6 +27,7 @@ set(CPP_SOURCES
   ../cpp/PlatformLocaleProvider.cpp
   ../cpp/PlatformTimezoneProvider.cpp
   ../cpp/core/Arithmetic.cpp
+  ../cpp/core/Batch.cpp
   ../cpp/core/Civil.cpp
   ../cpp/core/Formatter.cpp
   ../cpp/core/IsoParser.cpp

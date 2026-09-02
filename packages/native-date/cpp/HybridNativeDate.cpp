@@ -1,8 +1,11 @@
 #include "HybridNativeDate.hpp"
 #include "LocaleHelper.hpp"
+#include "PlatformLocaleProvider.hpp"
 #include "RelativeTimeHelper.hpp"
+#include "core/Batch.hpp"
 #include "core/DateCore.hpp"
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <stdexcept>
 
@@ -39,6 +42,20 @@ static DateComponents toDateComponents(const core::InternalDateComponents& dc) {
     );
 }
 
+static DateComponents invalidDateComponents() {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    return DateComponents(nan, nan, nan, nan, nan, nan, nan, nan);
+}
+
+// B-07: the "Unable to parse" message must not echo unbounded caller input.
+static std::string quoteTruncated(const std::string& text) {
+    constexpr std::size_t kMaxQuotedLength = 64;
+    if (text.size() <= kMaxQuotedLength) {
+        return text;
+    }
+    return text.substr(0, kMaxQuotedLength) + "...";
+}
+
 static LocaleInfo toLocaleInfo(const LocaleInfoData& data) {
     return LocaleInfo(
         data.code,
@@ -62,7 +79,8 @@ double HybridNativeDate::parse(const std::string& dateString) {
 double HybridNativeDate::parseFormat(const std::string& dateString, const std::string& pattern) {
     double result = core::parseWithFormat(dateString, pattern);
     if (std::isnan(result)) {
-        throw std::invalid_argument("Unable to parse date string: '" + dateString + "' with pattern: '" + pattern + "'");
+        throw std::invalid_argument("Unable to parse date string: '" + quoteTruncated(dateString) +
+                                    "' with pattern: '" + quoteTruncated(pattern) + "'");
     }
     return result;
 }
@@ -364,69 +382,41 @@ std::vector<LocaleInfo> HybridNativeDate::getAvailableLocalesInfo() {
 }
 
 // MARK: - Async Batch Operations
+//
+// Caps throw on the JS thread (before Promise::async) so an oversized call
+// never occupies a Nitro worker. The lambdas capture containers by value and
+// construct a fresh PlatformLocaleProvider on the worker — no `this`. Locale
+// names come from the LocaleStore snapshot (thread-safe). formatManyAsync
+// uses the same formatInternal path as format() (C-02).
 
 std::shared_ptr<Promise<std::vector<double>>> HybridNativeDate::parseManyAsync(const std::vector<std::string>& dateStrings) {
-    // Capture dateStrings by value for thread safety
+    core::requireBatchSize(dateStrings.size());
     return Promise<std::vector<double>>::async([dateStrings]() -> std::vector<double> {
-        std::vector<double> results;
-        results.reserve(dateStrings.size());
-
-        for (const auto& dateString : dateStrings) {
-            try {
-                results.push_back(core::parseISO8601(dateString));
-            } catch (...) {
-                // On error, push NaN to indicate invalid date
-                results.push_back(std::numeric_limits<double>::quiet_NaN());
-            }
-        }
-
-        return results;
+        return core::parseMany(dateStrings);
     });
 }
 
 std::shared_ptr<Promise<std::vector<std::string>>> HybridNativeDate::formatManyAsync(const std::vector<double>& timestamps, const std::string& pattern) {
-    // Capture by value for thread safety
+    core::requireBatchSize(timestamps.size());
+    core::requireFormatPattern(pattern);
     return Promise<std::vector<std::string>>::async([timestamps, pattern]() -> std::vector<std::string> {
-        std::vector<std::string> results;
-        results.reserve(timestamps.size());
-
-        for (double timestamp : timestamps) {
-            core::InternalDateComponents dc = core::timestampToComponents(timestamp, false); // local time
-
-            std::string result = pattern;
-
-            // Replace patterns
-            auto replacePattern = [&result](const std::string& pat, const std::string& value) {
-                size_t pos = 0;
-                while ((pos = result.find(pat, pos)) != std::string::npos) {
-                    result.replace(pos, pat.length(), value);
-                    pos += value.length();
-                }
-            };
-
-            replacePattern("yyyy", std::to_string(dc.year));
-            replacePattern("MM", core::padZero(dc.month));
-            replacePattern("dd", core::padZero(dc.day));
-            replacePattern("HH", core::padZero(dc.hour));
-            replacePattern("mm", core::padZero(dc.minute));
-            replacePattern("ss", core::padZero(dc.second));
-            replacePattern("SSS", core::padZero(dc.millisecond, 3));
-
-            results.push_back(result);
-        }
-
-        return results;
+        PlatformLocaleProvider locale;
+        return core::formatMany(timestamps, pattern, locale);
     });
 }
 
 std::shared_ptr<Promise<std::vector<DateComponents>>> HybridNativeDate::getComponentsManyAsync(const std::vector<double>& timestamps) {
-    // Capture by value for thread safety
+    core::requireBatchSize(timestamps.size());
     return Promise<std::vector<DateComponents>>::async([timestamps]() -> std::vector<DateComponents> {
         std::vector<DateComponents> results;
         results.reserve(timestamps.size());
 
-        for (double timestamp : timestamps) {
-            results.push_back(toDateComponents(core::timestampToComponents(timestamp, false))); // local time
+        for (const auto& dc : core::getComponentsMany(timestamps)) {
+            if (dc.has_value()) {
+                results.push_back(toDateComponents(*dc));
+            } else {
+                results.push_back(invalidDateComponents());
+            }
         }
 
         return results;
