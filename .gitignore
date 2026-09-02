@@ -42,6 +42,7 @@ android/.idea/
 *.keystore
 !debug.keystore
 .cxx/
+.kotlin/
 
 # React Native
 *.bundle

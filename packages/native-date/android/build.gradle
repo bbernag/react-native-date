@@ -9,7 +9,7 @@ buildscript {
   }
 
   dependencies {
-    classpath "com.android.tools.build:gradle:8.7.2"
+    classpath "com.android.tools.build:gradle:${getExtOrDefault('agpVersion')}"
     // noinspection DifferentKotlinGradleVersion
     classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${getExtOrDefault('kotlinVersion')}"
   }
@@ -26,6 +26,10 @@ apply from: '../nitrogen/generated/android/rnpackages_nativedate+autolinking.gra
 
 apply plugin: "com.facebook.react"
 
+def getExtOrDefault(name) {
+  return rootProject.ext.has(name) ? rootProject.ext.get(name) : project.properties['NativeDate_' + name]
+}
+
 def getExtOrIntegerDefault(name) {
   return rootProject.ext.has(name) ? rootProject.ext.get(name) : (project.properties["NativeDate_" + name]).toInteger()
 }
@@ -33,6 +37,7 @@ def getExtOrIntegerDefault(name) {
 android {
   namespace "com.margelo.nitro.rnpackages.nativedate"
 
+  ndkVersion getExtOrDefault("ndkVersion")
   compileSdkVersion getExtOrIntegerDefault("compileSdkVersion")
 
   defaultConfig {
@@ -41,18 +46,9 @@ android {
 
     externalNativeBuild {
       cmake {
-        cppFlags "-frtti -fexceptions -Wall -fstack-protector-all"
-        arguments "-DANDROID_STL=c++_shared", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+        cppFlags "-frtti -fexceptions -Wall -fstack-protector-strong"
+        arguments "-DANDROID_STL=c++_shared", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON", "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
         abiFilters (*reactNativeArchitectures())
-
-        buildTypes {
-          debug {
-            cppFlags "-O1 -g"
-          }
-          release {
-            cppFlags "-O2"
-          }
-        }
       }
     }
   }
@@ -90,8 +86,20 @@ android {
   }
 
   buildTypes {
+    debug {
+      externalNativeBuild {
+        cmake {
+          cppFlags "-O1 -g"
+        }
+      }
+    }
     release {
       minifyEnabled false
+      externalNativeBuild {
+        cmake {
+          cppFlags "-O2"
+        }
+      }
     }
   }
 
@@ -100,8 +108,12 @@ android {
   }
 
   compileOptions {
-    sourceCompatibility JavaVersion.VERSION_1_8
-    targetCompatibility JavaVersion.VERSION_1_8
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = "17"
   }
 
   sourceSets {
