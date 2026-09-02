@@ -97,7 +97,8 @@ std::size_t runLength(const std::string& pattern, std::size_t pos, char c, std::
 //   yyyy YYYY  4-digit year (0000-9999)      hh h   hour 01-12 (2 / 1-2 digits)
 //   yy   YY    2-digit year (70-99 → 19xx,   mm m   minute 00-59
 //              00-69 → 20xx)                 ss s   second 00-59
-//   MM   M     month 01-12                   SSS    millisecond 000-999
+//   MM   M     month 01-12 (note: the      SSS    millisecond 000-999
+//              formatter's `M` is the narrow month NAME, so it does not round-trip)
 //   dd   DD    day 01..daysInMonth           a aa aaa A  AM/PM marker
 //   d    D     day 1..daysInMonth (1-2 dig.) 'text' [text] ''  literals
 //   HH   H     hour 00-23
@@ -133,7 +134,6 @@ double parseWithFormat(const std::string& dateString, const std::string& pattern
 
     while (patternPos < patternLen) {
         const char c = pattern[patternPos];
-        const std::size_t remaining = patternLen - patternPos;
 
         // Escaped text with brackets [text] (dayjs style)
         if (c == '[') {
@@ -174,125 +174,117 @@ double parseWithFormat(const std::string& dateString, const std::string& pattern
             continue;
         }
 
-        bool matched = false;
+        // Fast token matching using first character switch (same shape as
+        // formatInternal); `run` is the length of the token's character run.
+        const std::size_t run = runLength(pattern, patternPos, c, 4);
+        bool matched = true;
 
-        // yyyy / YYYY - 4 digit year
-        if (remaining >= 4 && (pattern.substr(patternPos, 4) == "yyyy" || pattern.substr(patternPos, 4) == "YYYY")) {
-            if (!readFixedDigits(dateString, datePos, 4, dc.year)) return kNaN;
-            patternPos += 4;
-            matched = true;
-        }
-        // yy / YY - 2 digit year
-        else if (remaining >= 2 && (pattern.substr(patternPos, 2) == "yy" || pattern.substr(patternPos, 2) == "YY")) {
-            int year2 = 0;
-            if (!readFixedDigits(dateString, datePos, 2, year2)) return kNaN;
-            dc.year = (year2 >= 70) ? 1900 + year2 : 2000 + year2;
-            patternPos += 2;
-            matched = true;
-        }
-        // MMM / MMMM - month names need a locale: unsupported
-        else if (remaining >= 3 && pattern.substr(patternPos, 3) == "MMM") {
-            return kNaN;
-        }
-        // MM - 2 digit month
-        else if (remaining >= 2 && pattern.substr(patternPos, 2) == "MM") {
-            if (!readFixedDigits(dateString, datePos, 2, dc.month)) return kNaN;
-            patternPos += 2;
-            matched = true;
-        }
-        // M - 1-2 digit month
-        else if (c == 'M') {
-            if (!readVariableDigits(dateString, datePos, 2, dc.month)) return kNaN;
-            patternPos++;
-            matched = true;
-        }
-        // ddd / dddd - weekday names: unsupported
-        else if (remaining >= 3 && pattern.substr(patternPos, 3) == "ddd") {
-            return kNaN;
-        }
-        // dd / DD - 2 digit day
-        else if (remaining >= 2 && (pattern.substr(patternPos, 2) == "dd" || pattern.substr(patternPos, 2) == "DD")) {
-            if (!readFixedDigits(dateString, datePos, 2, dc.day)) return kNaN;
-            patternPos += 2;
-            matched = true;
-        }
-        // d / D - 1-2 digit day
-        else if (c == 'd' || c == 'D') {
-            if (!readVariableDigits(dateString, datePos, 2, dc.day)) return kNaN;
-            patternPos++;
-            matched = true;
-        }
-        // E.. - weekday names: unsupported
-        else if (c == 'E') {
-            return kNaN;
-        }
-        // HH - 2 digit hour (24h)
-        else if (remaining >= 2 && pattern.substr(patternPos, 2) == "HH") {
-            if (!readFixedDigits(dateString, datePos, 2, dc.hour)) return kNaN;
-            patternPos += 2;
-            matched = true;
-        }
-        // H - 1-2 digit hour (24h)
-        else if (c == 'H') {
-            if (!readVariableDigits(dateString, datePos, 2, dc.hour)) return kNaN;
-            patternPos++;
-            matched = true;
-        }
-        // hh - 2 digit hour (12h)
-        else if (remaining >= 2 && pattern.substr(patternPos, 2) == "hh") {
-            if (!readFixedDigits(dateString, datePos, 2, dc.hour)) return kNaN;
-            hasHour12 = true;
-            patternPos += 2;
-            matched = true;
-        }
-        // h - 1-2 digit hour (12h)
-        else if (c == 'h') {
-            if (!readVariableDigits(dateString, datePos, 2, dc.hour)) return kNaN;
-            hasHour12 = true;
-            patternPos++;
-            matched = true;
-        }
-        // mm - 2 digit minute
-        else if (remaining >= 2 && pattern.substr(patternPos, 2) == "mm") {
-            if (!readFixedDigits(dateString, datePos, 2, dc.minute)) return kNaN;
-            patternPos += 2;
-            matched = true;
-        }
-        // m - 1-2 digit minute
-        else if (c == 'm') {
-            if (!readVariableDigits(dateString, datePos, 2, dc.minute)) return kNaN;
-            patternPos++;
-            matched = true;
-        }
-        // ss - 2 digit second
-        else if (remaining >= 2 && pattern.substr(patternPos, 2) == "ss") {
-            if (!readFixedDigits(dateString, datePos, 2, dc.second)) return kNaN;
-            patternPos += 2;
-            matched = true;
-        }
-        // s - 1-2 digit second
-        else if (c == 's') {
-            if (!readVariableDigits(dateString, datePos, 2, dc.second)) return kNaN;
-            patternPos++;
-            matched = true;
-        }
-        // SSS - 3 digit millisecond
-        else if (remaining >= 3 && pattern.substr(patternPos, 3) == "SSS") {
-            if (!readFixedDigits(dateString, datePos, 3, dc.millisecond)) return kNaN;
-            patternPos += 3;
-            matched = true;
-        }
-        // A - AM/PM marker (one token per character)
-        else if (c == 'A') {
-            if (!readAmPm(dateString, datePos, isPM)) return kNaN;
-            patternPos++;
-            matched = true;
-        }
-        // a / aa / aaa - AM/PM marker
-        else if (c == 'a') {
-            if (!readAmPm(dateString, datePos, isPM)) return kNaN;
-            patternPos += runLength(pattern, patternPos, 'a', 3);
-            matched = true;
+        switch (c) {
+            case 'y':
+            case 'Y':
+                if (run >= 4) {
+                    if (!readFixedDigits(dateString, datePos, 4, dc.year)) return kNaN;
+                    patternPos += 4;
+                } else if (run >= 2) {
+                    int year2 = 0;
+                    if (!readFixedDigits(dateString, datePos, 2, year2)) return kNaN;
+                    dc.year = (year2 >= 70) ? 1900 + year2 : 2000 + year2;
+                    patternPos += 2;
+                } else {
+                    matched = false;
+                }
+                break;
+
+            case 'M':
+                if (run >= 3) return kNaN; // month names need a locale
+                if (run == 2) {
+                    if (!readFixedDigits(dateString, datePos, 2, dc.month)) return kNaN;
+                    patternPos += 2;
+                } else {
+                    if (!readVariableDigits(dateString, datePos, 2, dc.month)) return kNaN;
+                    patternPos++;
+                }
+                break;
+
+            case 'd':
+                if (run >= 3) return kNaN; // weekday names need a locale
+                [[fallthrough]];
+            case 'D':
+                if (run >= 2) {
+                    if (!readFixedDigits(dateString, datePos, 2, dc.day)) return kNaN;
+                    patternPos += 2;
+                } else {
+                    if (!readVariableDigits(dateString, datePos, 2, dc.day)) return kNaN;
+                    patternPos++;
+                }
+                break;
+
+            case 'E':
+                return kNaN; // weekday names need a locale
+
+            case 'H':
+                if (run >= 2) {
+                    if (!readFixedDigits(dateString, datePos, 2, dc.hour)) return kNaN;
+                    patternPos += 2;
+                } else {
+                    if (!readVariableDigits(dateString, datePos, 2, dc.hour)) return kNaN;
+                    patternPos++;
+                }
+                break;
+
+            case 'h':
+                hasHour12 = true;
+                if (run >= 2) {
+                    if (!readFixedDigits(dateString, datePos, 2, dc.hour)) return kNaN;
+                    patternPos += 2;
+                } else {
+                    if (!readVariableDigits(dateString, datePos, 2, dc.hour)) return kNaN;
+                    patternPos++;
+                }
+                break;
+
+            case 'm':
+                if (run >= 2) {
+                    if (!readFixedDigits(dateString, datePos, 2, dc.minute)) return kNaN;
+                    patternPos += 2;
+                } else {
+                    if (!readVariableDigits(dateString, datePos, 2, dc.minute)) return kNaN;
+                    patternPos++;
+                }
+                break;
+
+            case 's':
+                if (run >= 2) {
+                    if (!readFixedDigits(dateString, datePos, 2, dc.second)) return kNaN;
+                    patternPos += 2;
+                } else {
+                    if (!readVariableDigits(dateString, datePos, 2, dc.second)) return kNaN;
+                    patternPos++;
+                }
+                break;
+
+            case 'S':
+                if (run >= 3) {
+                    if (!readFixedDigits(dateString, datePos, 3, dc.millisecond)) return kNaN;
+                    patternPos += 3;
+                } else {
+                    matched = false;
+                }
+                break;
+
+            case 'A':
+                if (!readAmPm(dateString, datePos, isPM)) return kNaN;
+                patternPos++;
+                break;
+
+            case 'a':
+                if (!readAmPm(dateString, datePos, isPM)) return kNaN;
+                patternPos += run > 3 ? 3 : run;
+                break;
+
+            default:
+                matched = false;
+                break;
         }
 
         // No token matched - expect literal character match

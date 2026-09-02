@@ -4,125 +4,81 @@
 
 #include <iomanip>
 #include <sstream>
-#include <utility>
-#include <vector>
 
 namespace nativedate::core {
 
-// Token identifiers for format patterns
-enum class FormatToken {
-    // Year
-    YEAR_4,         // yyyy, YYYY → "2024"
-    YEAR_2,         // yy, YY → "24"
-    // Month
-    MONTH_NAME,     // MMMM → "December"
-    MONTH_SHORT,    // MMM → "Dec"
-    MONTH_2,        // MM → "12"
-    MONTH_1,        // M → "D" (single letter)
-    // Day
-    DAY_2,          // dd, DD → "25"
-    DAY_1,          // d, D → "25" (no leading zero)
-    // Day name
-    DAY_NAME,       // EEEE, dddd → "Wednesday"
-    DAY_SHORT,      // EEE, ddd → "Wed"
-    DAY_MIN,        // EE → "We"
-    DAY_LETTER,     // E → "W"
-    // Hour
-    HOUR_24,        // HH → "14"
-    HOUR_24_1,      // H → "14" (no leading zero)
-    HOUR_12,        // hh → "02"
-    HOUR_12_1,      // h → "2" (no leading zero)
-    // Minute
-    MINUTE,         // mm → "30"
-    MINUTE_1,       // m → "30" (no leading zero)
-    // Second
-    SECOND,         // ss → "45"
-    SECOND_1,       // s → "45" (no leading zero)
-    // Millisecond
-    MILLISECOND,    // SSS → "123"
-    // AM/PM
-    AMPM_UPPER,     // A → "PM"
-    AMPM_LOWER,     // a → "p"
-    AMPM_FULL,      // aa → "pm"
-    AMPM_DOT,       // aaa → "p.m."
-};
+// Token table (the parser in PatternParser.cpp mirrors this):
+//   yyyy YYYY  zero-padded year (wider or signed outside 0000-9999)
+//   yy   YY    last two digits of the year
+//   MMMM MMM   full / abbreviated month name (locale)
+//   MM   M     zero-padded month / narrow month name (locale)
+//   dddd ddd   full / abbreviated weekday name (locale)
+//   dd   DD    zero-padded day          d D   day
+//   EEEE EEE EE E  full / abbreviated / short / narrow weekday name (locale)
+//   HH   H     hour 00-23               hh h  hour 01-12
+//   mm   m     minute                   ss s  second
+//   SSS        millisecond 000-999
+//   A          "AM"/"PM"                a aa aaa  "a"/"p", "am"/"pm", "a.m."/"p.m."
+//   'text' [text] ''  literals; any other character is copied verbatim.
 
-// Static token list - sorted by length (longest first) to ensure correct matching
-static const std::vector<std::pair<std::string, FormatToken>> formatTokens = {
-    // 4-char tokens
-    {"yyyy", FormatToken::YEAR_4},
-    {"YYYY", FormatToken::YEAR_4},
-    {"MMMM", FormatToken::MONTH_NAME},
-    {"EEEE", FormatToken::DAY_NAME},
-    {"dddd", FormatToken::DAY_NAME},    // dayjs style
-    // 3-char tokens
-    {"MMM", FormatToken::MONTH_SHORT},
-    {"EEE", FormatToken::DAY_SHORT},
-    {"ddd", FormatToken::DAY_SHORT},    // dayjs style
-    {"SSS", FormatToken::MILLISECOND},
-    {"aaa", FormatToken::AMPM_DOT},
-    // 2-char tokens
-    {"yy", FormatToken::YEAR_2},
-    {"YY", FormatToken::YEAR_2},
-    {"MM", FormatToken::MONTH_2},
-    {"dd", FormatToken::DAY_2},
-    {"DD", FormatToken::DAY_2},
-    {"EE", FormatToken::DAY_MIN},
-    {"HH", FormatToken::HOUR_24},
-    {"hh", FormatToken::HOUR_12},
-    {"mm", FormatToken::MINUTE},
-    {"ss", FormatToken::SECOND},
-    {"aa", FormatToken::AMPM_FULL},
-    // 1-char tokens
-    {"M", FormatToken::MONTH_1},
-    {"d", FormatToken::DAY_1},
-    {"D", FormatToken::DAY_1},
-    {"E", FormatToken::DAY_LETTER},
-    {"H", FormatToken::HOUR_24_1},
-    {"h", FormatToken::HOUR_12_1},
-    {"m", FormatToken::MINUTE_1},
-    {"s", FormatToken::SECOND_1},
-    {"A", FormatToken::AMPM_UPPER},
-    {"a", FormatToken::AMPM_LOWER},
-};
-
-// Fast inline number to string (no std::to_string overhead)
+// Fast inline number to string (no std::to_string overhead); handles any int.
 inline void appendInt(std::string& s, int value) {
-    if (value < 10) {
-        s += ('0' + value);
-    } else if (value < 100) {
-        s += ('0' + value / 10);
-        s += ('0' + value % 10);
+    if (value >= 0 && value < 10) {
+        s += static_cast<char>('0' + value);
+    } else if (value >= 10 && value < 100) {
+        s += static_cast<char>('0' + value / 10);
+        s += static_cast<char>('0' + value % 10);
     } else {
-        // Fallback for larger numbers
+        // Fallback for larger and negative numbers
         char buf[12];
         int i = 0;
-        int v = value;
+        unsigned v = value < 0 ? 0u - static_cast<unsigned>(value) : static_cast<unsigned>(value);
         do {
-            buf[i++] = '0' + (v % 10);
+            buf[i++] = static_cast<char>('0' + (v % 10));
             v /= 10;
         } while (v > 0);
+        if (value < 0) s += '-';
         while (i > 0) s += buf[--i];
     }
 }
 
-// Fast inline padded number append
+// Zero-padded appenders. Each assumes a value in its digit range and falls
+// back to the plain signed decimal outside it, so an out-of-range component
+// (a wrapped year, a negative pre-epoch millisecond) can never turn into
+// non-digit garbage bytes (C-06).
 inline void appendPad2(std::string& s, int value) {
-    s += ('0' + (value / 10) % 10);
-    s += ('0' + value % 10);
+    if (value < 0 || value > 99) {
+        appendInt(s, value);
+        return;
+    }
+    s += static_cast<char>('0' + value / 10);
+    s += static_cast<char>('0' + value % 10);
 }
 
 inline void appendPad3(std::string& s, int value) {
-    s += ('0' + (value / 100) % 10);
-    s += ('0' + (value / 10) % 10);
-    s += ('0' + value % 10);
+    if (value < 0 || value > 999) {
+        appendInt(s, value);
+        return;
+    }
+    s += static_cast<char>('0' + value / 100);
+    s += static_cast<char>('0' + (value / 10) % 10);
+    s += static_cast<char>('0' + value % 10);
 }
 
+// Years: 0000-9999 are zero-padded; negative years keep the sign in front of
+// the padded magnitude ("-0001"); years beyond 9999 print in full ("10000").
 inline void appendPad4(std::string& s, int value) {
-    s += ('0' + (value / 1000) % 10);
-    s += ('0' + (value / 100) % 10);
-    s += ('0' + (value / 10) % 10);
-    s += ('0' + value % 10);
+    if (value < 0 && value > -10000) {
+        s += '-';
+        value = -value;
+    } else if (value < 0 || value > 9999) {
+        appendInt(s, value);
+        return;
+    }
+    s += static_cast<char>('0' + value / 1000);
+    s += static_cast<char>('0' + (value / 100) % 10);
+    s += static_cast<char>('0' + (value / 10) % 10);
+    s += static_cast<char>('0' + value % 10);
 }
 
 std::string formatInternal(double timestamp, const std::string& pattern, bool useUTC,
@@ -337,34 +293,27 @@ std::string formatInternal(double timestamp, const std::string& pattern, bool us
 }
 
 std::string padZero(int value, int width) {
-    // Fast path for common cases (no ostringstream overhead)
-    if (width == 2) {
-        char buf[3];
-        buf[0] = '0' + (value / 10) % 10;
-        buf[1] = '0' + value % 10;
-        buf[2] = '\0';
-        return std::string(buf);
+    // Fast paths for the common widths (no ostringstream overhead). Values
+    // outside the width's digit range take the fallback, which prints the
+    // signed decimal instead of emitting garbage bytes (C-06).
+    if (value >= 0) {
+        std::string result;
+        if (width == 2 && value <= 99) {
+            appendPad2(result, value);
+            return result;
+        }
+        if (width == 3 && value <= 999) {
+            appendPad3(result, value);
+            return result;
+        }
+        if (width == 4 && value <= 9999) {
+            appendPad4(result, value);
+            return result;
+        }
     }
-    if (width == 3) {
-        char buf[4];
-        buf[0] = '0' + (value / 100) % 10;
-        buf[1] = '0' + (value / 10) % 10;
-        buf[2] = '0' + value % 10;
-        buf[3] = '\0';
-        return std::string(buf);
-    }
-    if (width == 4) {
-        char buf[5];
-        buf[0] = '0' + (value / 1000) % 10;
-        buf[1] = '0' + (value / 100) % 10;
-        buf[2] = '0' + (value / 10) % 10;
-        buf[3] = '0' + value % 10;
-        buf[4] = '\0';
-        return std::string(buf);
-    }
-    // Fallback for other widths
+    // Fallback for other widths and out-of-range values
     std::ostringstream ss;
-    ss << std::setfill('0') << std::setw(width) << value;
+    ss << std::setfill('0') << std::setw(width) << std::internal << value;
     return ss.str();
 }
 
