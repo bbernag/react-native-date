@@ -176,8 +176,9 @@ describe('Error policy: try* return null', () => {
   it('tryParseFormat returns null for invalid input', () => {
     expect(tryParseFormat('12/25/2024', 'MM/dd/yyyy')).not.toBeNull();
     expect(tryParseFormat('invalid', 'MM/dd/yyyy')).toBeNull();
-    // Note: `tryParseFormat('', pattern)` is a native-only case; the JS mock
-    // accepts partial consumption (see the in-app native test screen).
+    expect(tryParseFormat('', 'MM/dd/yyyy')).toBeNull();
+    expect(tryParseFormat('2024', 'yyyy-MM-dd')).toBeNull();
+    expect(tryParseFormat('12/25', 'MM/dd/yyyy')).toBeNull();
   });
 });
 

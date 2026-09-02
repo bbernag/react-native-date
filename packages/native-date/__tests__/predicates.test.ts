@@ -6,6 +6,8 @@ import {
   isWeekend,
   isLeapYear,
   isValid,
+  isPast,
+  isFuture,
   getDaysInMonth,
   getComponents,
   getYear,
@@ -162,18 +164,23 @@ describe('Date Getters', () => {
 });
 
 describe('Relative Date Predicates', () => {
-  // Note: These tests use mocked now() which returns Date.now()
-  // In real scenarios, these would need careful time control
-
-  describe('Time-relative predicates', () => {
-    it('should correctly identify past and future dates', () => {
+  describe('isPast() / isFuture()', () => {
+    it('should identify past and future dates relative to now', () => {
       const currentTime = now();
       const pastDate = subDays(currentTime, 10);
       const futureDate = addDays(currentTime, 10);
 
-      // These assertions test the basic relationships
-      expect(pastDate).toBeLessThan(currentTime);
-      expect(futureDate).toBeGreaterThan(currentTime);
+      expect(isPast(pastDate)).toBe(true);
+      expect(isPast(futureDate)).toBe(false);
+      expect(isFuture(futureDate)).toBe(true);
+      expect(isFuture(pastDate)).toBe(false);
+      expect(isPast(currentTime)).toBe(false);
+      expect(isFuture(currentTime)).toBe(false);
+    });
+
+    it('should return false for invalid input', () => {
+      expect(isPast(NaN)).toBe(false);
+      expect(isFuture('not-a-date')).toBe(false);
     });
   });
 });

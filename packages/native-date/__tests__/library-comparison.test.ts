@@ -898,9 +898,8 @@ describe('Library Comparison Tests', () => {
   // MONTH OVERFLOW EDGE CASES
   // ============================================================
   describe('Month Overflow Comparison', () => {
-    // Note: date-fns clamps to end of month (Jan 31 + 1 month = Feb 28/29)
-    // JavaScript Date overflows (Jan 31 + 1 month = Mar 2/3)
-    // Our library follows JavaScript Date behavior for consistency
+    // Native month/year arithmetic clamps to the last valid day of the target
+    // month (Q1), matching date-fns and dayjs. JS Date overflows instead.
 
     describe('Non-overflow cases should match date-fns', () => {
       const safeCases = [
@@ -924,33 +923,43 @@ describe('Library Comparison Tests', () => {
       });
     });
 
-    describe('Overflow behavior documentation', () => {
-      // These tests document that our library uses JS Date overflow behavior
-      it('Jan 31 + 1 month should overflow to March (JS Date behavior)', () => {
+    describe('Clamp behavior (Q1)', () => {
+      it('Jan 31 + 1 month clamps to Feb 29 in a leap year', () => {
         const ts = parse('2024-01-31T12:00:00Z');
         const result = addMonths(ts, 1);
-        // JS Date: Jan 31 + 1 month = Feb 31 = Mar 2 (leap year)
-        const resultDate = new Date(result);
-        expect(resultDate.getUTCMonth()).toBe(2); // March (0-indexed)
+        expect(formatUTC(result, 'yyyy-MM-dd')).toBe('2024-02-29');
+        expect(result).toBe(dfAddMonths(new Date(ts), 1).getTime());
       });
 
-      it('May 31 + 1 month should overflow to July (JS Date behavior)', () => {
+      it('Jan 31 + 1 month clamps to Feb 28 in a non-leap year', () => {
+        const ts = parse('2023-01-31T12:00:00Z');
+        const result = addMonths(ts, 1);
+        expect(formatUTC(result, 'yyyy-MM-dd')).toBe('2023-02-28');
+        expect(result).toBe(dfAddMonths(new Date(ts), 1).getTime());
+      });
+
+      it('May 31 + 1 month clamps to Jun 30', () => {
         const ts = parse('2024-05-31T12:00:00Z');
         const result = addMonths(ts, 1);
-        // JS Date: May 31 + 1 month = Jun 31 = Jul 1
-        const resultDate = new Date(result);
-        expect(resultDate.getUTCMonth()).toBe(6); // July (0-indexed)
+        expect(formatUTC(result, 'yyyy-MM-dd')).toBe('2024-06-30');
+        expect(result).toBe(dfAddMonths(new Date(ts), 1).getTime());
       });
     });
 
     describe('Year arithmetic with Feb 29', () => {
-      // These also have different behavior: date-fns clamps, JS Date overflows
       it('Feb 29 + 4 years should match (both leap years)', () => {
         const ts = parse('2024-02-29T12:00:00Z');
         const dfDate = new Date(ts);
         const nativeResult = addYears(ts, 4);
         const dfResult = dfAddYears(dfDate, 4).getTime();
         expect(nativeResult).toBe(dfResult);
+      });
+
+      it('Feb 29 + 1 year clamps to Feb 28', () => {
+        const ts = parse('2024-02-29T12:00:00Z');
+        const result = addYears(ts, 1);
+        expect(formatUTC(result, 'yyyy-MM-dd')).toBe('2025-02-28');
+        expect(result).toBe(dfAddYears(new Date(ts), 1).getTime());
       });
     });
   });
@@ -1109,9 +1118,8 @@ describe('Library Comparison Tests', () => {
         expect(formatUTC(testDate, 'MM')).toBe('06');
       });
 
-      it('M should output 1-2 digit month', () => {
-        const result = formatUTC(testDate, 'M');
-        expect(['6', '06']).toContain(result);
+      it('M should output the narrow month name', () => {
+        expect(formatUTC(testDate, 'M')).toBe('J');
       });
     });
 

@@ -136,13 +136,10 @@ describe('Date Arithmetic', () => {
   });
 
   describe('Edge cases', () => {
-    it('should handle month overflow', () => {
+    it('should clamp Jan 31 + 1 month to Feb 29 in a leap year', () => {
       const jan31 = parse('2024-01-31T12:00:00');
       const result = addMonths(jan31, 1);
-      // JavaScript Date handles overflow by moving to next month
-      // Jan 31 + 1 month = Mar 2 (since Feb doesn't have 31 days)
-      const resultDate = new Date(result);
-      expect(resultDate.getMonth()).toBeGreaterThanOrEqual(1); // At least Feb
+      expect(format(result, 'yyyy-MM-dd')).toBe('2024-02-29');
     });
 
     it('should handle year boundary', () => {

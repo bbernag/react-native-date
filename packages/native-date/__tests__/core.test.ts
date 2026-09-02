@@ -41,9 +41,17 @@ describe('Core Functions', () => {
     });
 
     it('should throw for invalid date strings', () => {
-      expect(() => parse('not-a-date')).toThrow();
-      expect(() => parse('')).toThrow();
-      expect(() => parse('invalid')).toThrow();
+      expect(() => parse('not-a-date')).toThrow(/Invalid ISO-8601/);
+      expect(() => parse('')).toThrow(/Invalid ISO-8601/);
+      expect(() => parse('invalid')).toThrow(/Invalid ISO-8601/);
+      expect(() => parse('2024-02-30')).toThrow(/Invalid ISO-8601/);
+      expect(() => parse('2024-02-31')).toThrow(/Invalid ISO-8601/);
+      expect(() => parse('2024/01/15')).toThrow(/Invalid ISO-8601/);
+    });
+
+    it('should parse HH:mm after T, including a Z designator', () => {
+      expect(parse('2024-01-15T14:30Z')).toBe(Date.UTC(2024, 0, 15, 14, 30));
+      expect(parse('2024-01-15T14:30:00Z')).toBe(Date.UTC(2024, 0, 15, 14, 30));
     });
   });
 

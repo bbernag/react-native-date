@@ -15,6 +15,7 @@ import {
   parseFormat,
   tryParseFormat,
   fromComponents,
+  NativeDateModule,
   format,
   formatUTC,
   // Getters
@@ -102,6 +103,7 @@ import {
   endOfDayInTz,
   // Locale
   getLocale,
+  setLocale,
   getAvailableLocales,
   getLocaleDisplayName,
   getLocaleInfo,
@@ -163,19 +165,28 @@ const TABS = [
 
 type TabName = (typeof TABS)[number];
 
-// Test data
-const TEST_DATE = '2024-06-15T14:30:45.123Z';
-const TEST_TS = parse(TEST_DATE);
-const EARLIER_DATE = '2024-06-10T10:00:00.000Z';
-const EARLIER_TS = parse(EARLIER_DATE);
-const LATER_DATE = '2024-06-20T18:00:00.000Z';
-const LATER_TS = parse(LATER_DATE);
+// Local wall-clock fixtures are TZ-stable for getters/arithmetic. UTC instants
+// are formatted with formatInTimezone(..., 'UTC') so the screen does not depend
+// on the device zone (H-04).
+const TEST_TS = parse('2024-06-15T14:30:45.123');
+const UTC_TS = parse('2024-06-15T14:30:45.123Z');
+const EARLIER_TS = parse('2024-06-10T10:00:00.000Z');
+const LATER_TS = parse('2024-06-20T18:00:00.000Z');
 
-const durationIncludesUnit = (
-  value: string,
-  amount: number,
-  unit: 'd' | 'h'
-) => value.replace(/[,\s]/g, '').startsWith(`${amount}${unit}`);
+const utcText = (ts: number, pattern: string) =>
+  formatInTimezone(ts, pattern, 'UTC');
+
+const didThrow = (fn: () => unknown): boolean => {
+  try {
+    fn();
+    return false;
+  } catch {
+    return true;
+  }
+};
+
+const durationIncludesUnit = (value: string, amount: number, unit: 'd' | 'h') =>
+  value.replace(/[,\s]/g, '').startsWith(`${amount}${unit}`);
 
 function createTestCategories(): Record<TabName, TestCategory> {
   return {
@@ -184,10 +195,10 @@ function createTestCategories(): Record<TabName, TestCategory> {
       tests: [
         // now()
         {
-          name: 'now() returns number',
-          test: () => typeof now() === 'number',
-          expected: 'number',
-          getActual: () => typeof now(),
+          name: 'now() returns a finite timestamp',
+          test: () => Number.isFinite(now()),
+          expected: 'finite number',
+          getActual: () => String(now()),
         },
         {
           name: 'now() returns recent timestamp',
@@ -203,10 +214,34 @@ function createTestCategories(): Record<TabName, TestCategory> {
           getActual: () => String(parse('2024-06-15T12:00:00Z')),
         },
         {
-          name: 'parse() date only',
-          test: () => typeof parse('2024-06-15') === 'number',
-          expected: 'number',
-          getActual: () => typeof parse('2024-06-15'),
+          name: 'parse() date only is local midnight',
+          test: () => {
+            const ts = parse('2024-06-15');
+            const c = getComponents(ts);
+            return (
+              c.year === 2024 &&
+              c.month === 6 &&
+              c.day === 15 &&
+              c.hour === 0 &&
+              c.minute === 0
+            );
+          },
+          expected: '2024-06-15 00:00 local',
+          getActual: () => format(parse('2024-06-15'), 'yyyy-MM-dd HH:mm'),
+        },
+        {
+          name: "parse('not-a-date') throws",
+          test: () => didThrow(() => parse('not-a-date')),
+          expected: 'throws',
+          getActual: () =>
+            didThrow(() => parse('not-a-date')) ? 'throws' : 'did not throw',
+        },
+        {
+          name: "parse('2024-01-15T14:30Z') is 14:30 UTC",
+          test: () =>
+            parse('2024-01-15T14:30Z') === Date.UTC(2024, 0, 15, 14, 30),
+          expected: String(Date.UTC(2024, 0, 15, 14, 30)),
+          getActual: () => String(parse('2024-01-15T14:30Z')),
         },
         {
           name: 'parse() with timezone offset',
@@ -268,6 +303,21 @@ function createTestCategories(): Record<TabName, TestCategory> {
           expected: 'null',
           getActual: () => String(tryParseFormat('invalid', 'MM/dd/yyyy')),
         },
+        {
+          name: "tryParseFormat('12/25', 'MM/dd/yyyy') is null",
+          test: () => tryParseFormat('12/25', 'MM/dd/yyyy') === null,
+          expected: 'null',
+          getActual: () => String(tryParseFormat('12/25', 'MM/dd/yyyy')),
+        },
+        {
+          name: "parseFormat('2024', 'yyyy-MM-dd') throws",
+          test: () => didThrow(() => parseFormat('2024', 'yyyy-MM-dd')),
+          expected: 'throws',
+          getActual: () =>
+            didThrow(() => parseFormat('2024', 'yyyy-MM-dd'))
+              ? 'throws'
+              : 'did not throw',
+        },
         // fromComponents()
         {
           name: 'fromComponents() basic',
@@ -306,34 +356,37 @@ function createTestCategories(): Record<TabName, TestCategory> {
         },
         {
           name: 'format() HH:mm:ss',
-          test: () => {
-            const result = format(TEST_TS, 'HH:mm:ss');
-            return result.includes(':');
-          },
-          expected: 'contains ":"',
+          test: () => format(TEST_TS, 'HH:mm:ss') === '14:30:45',
+          expected: '14:30:45',
           getActual: () => format(TEST_TS, 'HH:mm:ss'),
         },
         {
           name: 'format() full pattern',
-          test: () => {
-            const result = format(TEST_TS, 'yyyy-MM-dd HH:mm:ss.SSS');
-            return result.length > 20;
-          },
-          expected: 'full datetime string',
+          test: () =>
+            format(TEST_TS, 'yyyy-MM-dd HH:mm:ss.SSS') ===
+            '2024-06-15 14:30:45.123',
+          expected: '2024-06-15 14:30:45.123',
           getActual: () => format(TEST_TS, 'yyyy-MM-dd HH:mm:ss.SSS'),
+        },
+        {
+          name: 'formatUTC() of a UTC instant via formatInTimezone',
+          test: () =>
+            utcText(UTC_TS, 'yyyy-MM-dd HH:mm:ss') === '2024-06-15 14:30:45',
+          expected: '2024-06-15 14:30:45',
+          getActual: () => utcText(UTC_TS, 'yyyy-MM-dd HH:mm:ss'),
         },
         // formatUTC()
         {
           name: 'formatUTC() yyyy-MM-dd',
-          test: () => formatUTC(TEST_TS, 'yyyy-MM-dd') === '2024-06-15',
+          test: () => formatUTC(UTC_TS, 'yyyy-MM-dd') === '2024-06-15',
           expected: '2024-06-15',
-          getActual: () => formatUTC(TEST_TS, 'yyyy-MM-dd'),
+          getActual: () => formatUTC(UTC_TS, 'yyyy-MM-dd'),
         },
         {
           name: 'formatUTC() HH:mm:ss',
-          test: () => formatUTC(TEST_TS, 'HH:mm:ss') === '14:30:45',
+          test: () => formatUTC(UTC_TS, 'HH:mm:ss') === '14:30:45',
           expected: '14:30:45',
-          getActual: () => formatUTC(TEST_TS, 'HH:mm:ss'),
+          getActual: () => formatUTC(UTC_TS, 'HH:mm:ss'),
         },
       ],
     },
@@ -345,12 +398,12 @@ function createTestCategories(): Record<TabName, TestCategory> {
           name: 'getComponents() returns object',
           test: () => {
             const c = getComponents(TEST_TS);
-            return typeof c === 'object' && 'year' in c && 'month' in c;
+            return c.year === 2024 && c.month === 6 && c.day === 15;
           },
-          expected: 'object with year, month',
+          expected: 'year=2024, month=6, day=15',
           getActual: () => {
             const c = getComponents(TEST_TS);
-            return `{year: ${c.year}, month: ${c.month}, ...}`;
+            return `{year: ${c.year}, month: ${c.month}, day: ${c.day}}`;
           },
         },
         {
@@ -380,14 +433,9 @@ function createTestCategories(): Record<TabName, TestCategory> {
         },
         {
           name: 'getYear() different year',
-          test: () => {
-            const ts = parse('2023-01-01');
-            const yr = getYear(ts);
-            console.log(`DEBUG parse('2023-01-01'): ts=${ts}, year=${yr}, jsDate=${new Date(ts).toISOString()}`);
-            return yr === 2023;
-          },
+          test: () => getYear(parse('2023-01-01')) === 2023,
           expected: '2023',
-          getActual: () => `ts=${parse('2023-01-01')}, year=${getYear(parse('2023-01-01'))}`,
+          getActual: () => String(getYear(parse('2023-01-01'))),
         },
         // getMonth()
         {
@@ -442,31 +490,34 @@ function createTestCategories(): Record<TabName, TestCategory> {
         },
         // getHours()
         {
-          name: 'getHours() from UTC timestamp',
-          test: () => typeof getHours(TEST_TS) === 'number',
-          expected: 'number',
+          name: 'getHours() is 14',
+          test: () => getHours(TEST_TS) === 14,
+          expected: '14',
           getActual: () => String(getHours(TEST_TS)),
         },
-        // getMinutes()
         {
-          name: 'getMinutes() returns number',
-          test: () => typeof getMinutes(TEST_TS) === 'number',
-          expected: 'number',
+          name: 'getMinutes() is 30',
+          test: () => getMinutes(TEST_TS) === 30,
+          expected: '30',
           getActual: () => String(getMinutes(TEST_TS)),
         },
-        // getSeconds()
         {
-          name: 'getSeconds() returns number',
-          test: () => typeof getSeconds(TEST_TS) === 'number',
-          expected: 'number',
+          name: 'getSeconds() is 45',
+          test: () => getSeconds(TEST_TS) === 45,
+          expected: '45',
           getActual: () => String(getSeconds(TEST_TS)),
         },
-        // getMilliseconds()
         {
-          name: 'getMilliseconds() returns number',
-          test: () => typeof getMilliseconds(TEST_TS) === 'number',
-          expected: 'number',
+          name: 'getMilliseconds() is 123',
+          test: () => getMilliseconds(TEST_TS) === 123,
+          expected: '123',
           getActual: () => String(getMilliseconds(TEST_TS)),
+        },
+        {
+          name: 'getMilliseconds(-1) is 999',
+          test: () => getMilliseconds(-1) === 999,
+          expected: '999',
+          getActual: () => String(getMilliseconds(-1)),
         },
       ],
     },
@@ -567,6 +618,12 @@ function createTestCategories(): Record<TabName, TestCategory> {
           expected: 'false',
           getActual: () => String(isValid(Infinity)),
         },
+        {
+          name: 'isValid() out of range = false',
+          test: () => isValid(8.64e15 + 1) === false,
+          expected: 'false',
+          getActual: () => String(isValid(8.64e15 + 1)),
+        },
       ],
     },
     Arithmetic: {
@@ -590,6 +647,39 @@ function createTestCategories(): Record<TabName, TestCategory> {
           },
           expected: 'month = 7',
           getActual: () => String(getMonth(add(TEST_TS, 1, 'month'))),
+        },
+        {
+          name: 'addMonths() Jan 31 clamps to Feb 29',
+          test: () => {
+            const result = addMonths(parse('2024-01-31T12:00:00'), 1);
+            return getMonth(result) === 2 && getDate(result) === 29;
+          },
+          expected: '2024-02-29',
+          getActual: () =>
+            format(addMonths(parse('2024-01-31T12:00:00'), 1), 'yyyy-MM-dd'),
+        },
+        {
+          name: 'addMonths(ts, 1.5) throws',
+          test: () => didThrow(() => addMonths(TEST_TS, 1.5)),
+          expected: 'throws',
+          getActual: () =>
+            didThrow(() => addMonths(TEST_TS, 1.5))
+              ? 'throws'
+              : 'did not throw',
+        },
+        {
+          name: 'NY DST add day keeps midnight',
+          test: () => {
+            const start = parse('2024-03-10T00:00:00');
+            const next = addDays(start, 1);
+            return getDate(next) === 11 && getHours(next) === 0;
+          },
+          expected: '2024-03-11 00:00',
+          getActual: () =>
+            format(
+              addDays(parse('2024-03-10T00:00:00'), 1),
+              'yyyy-MM-dd HH:mm'
+            ),
         },
         {
           name: 'add() 1 year',
@@ -961,6 +1051,17 @@ function createTestCategories(): Record<TabName, TestCategory> {
       tests: [
         // startOf()
         {
+          name: 'startOf() hour of 12:30 is 12:00 (local grid)',
+          test: () => {
+            const result = startOf(parse('2024-06-15T12:30:00'), 'hour');
+            const c = getComponents(result);
+            return c.hour === 12 && c.minute === 0;
+          },
+          expected: '12:00',
+          getActual: () =>
+            format(startOf(parse('2024-06-15T12:30:00'), 'hour'), 'HH:mm'),
+        },
+        {
           name: 'startOf() day',
           test: () => {
             const result = startOf(TEST_TS, 'day');
@@ -1066,7 +1167,11 @@ function createTestCategories(): Record<TabName, TestCategory> {
           test: () => {
             const jan15 = parse('2026-01-15T12:00:00');
             const start = startOfMonth(jan15);
-            return getMonth(start) === 1 && getDate(start) === 1 && getYear(start) === 2026;
+            return (
+              getMonth(start) === 1 &&
+              getDate(start) === 1 &&
+              getYear(start) === 2026
+            );
           },
           expected: 'Jan 1, 2026',
           getActual: () => {
@@ -1155,7 +1260,11 @@ function createTestCategories(): Record<TabName, TestCategory> {
           test: () => {
             const jan15 = parse('2026-01-15T12:00:00');
             const start = startOfYear(jan15);
-            return getYear(start) === 2026 && getMonth(start) === 1 && getDate(start) === 1;
+            return (
+              getYear(start) === 2026 &&
+              getMonth(start) === 1 &&
+              getDate(start) === 1
+            );
           },
           expected: 'Jan 1, 2026',
           getActual: () => {
@@ -1298,23 +1407,26 @@ function createTestCategories(): Record<TabName, TestCategory> {
         // formatDistance
         {
           name: 'formatDistance() past',
-          test: () => {
-            const result = formatDistance(EARLIER_TS, LATER_TS, true);
-            // Accept various past formats: "ago", "last week", "yesterday", etc.
-            return result.includes('ago') || result.includes('last') || result.includes('yesterday');
-          },
-          expected: 'relative past string',
+          test: () =>
+            formatDistance(EARLIER_TS, LATER_TS, true).endsWith('ago'),
+          expected: 'ends with "ago"',
           getActual: () => formatDistance(EARLIER_TS, LATER_TS, true),
         },
         {
           name: 'formatDistance() future',
-          test: () => {
-            const result = formatDistance(LATER_TS, EARLIER_TS, true);
-            // Accept various future formats: "in X", "next week", "tomorrow", etc.
-            return result.includes('in') || result.includes('next') || result.includes('tomorrow');
-          },
-          expected: 'relative future string',
+          test: () =>
+            formatDistance(LATER_TS, EARLIER_TS, true).startsWith('in '),
+          expected: 'starts with "in "',
           getActual: () => formatDistance(LATER_TS, EARLIER_TS, true),
+        },
+        {
+          name: 'formatDistance(..., false) has no direction words',
+          test: () => {
+            const result = formatDistance(EARLIER_TS, LATER_TS, false);
+            return !result.includes('ago') && !result.startsWith('in ');
+          },
+          expected: 'bare quantity',
+          getActual: () => formatDistance(EARLIER_TS, LATER_TS, false),
         },
         // formatDuration
         {
@@ -1332,9 +1444,9 @@ function createTestCategories(): Record<TabName, TestCategory> {
         // toISOString
         {
           name: 'toISOString() format',
-          test: () => toISOString(TEST_TS).includes('2024-06-15'),
-          expected: 'contains "2024-06-15"',
-          getActual: () => toISOString(TEST_TS),
+          test: () => toISOString(UTC_TS) === '2024-06-15T14:30:45.123Z',
+          expected: '2024-06-15T14:30:45.123Z',
+          getActual: () => toISOString(UTC_TS),
         },
         // formatDate/formatDateTime
         {
@@ -1345,8 +1457,8 @@ function createTestCategories(): Record<TabName, TestCategory> {
         },
         {
           name: 'formatDateTime()',
-          test: () => formatDateTime(TEST_TS).includes('2024-06-15'),
-          expected: 'contains "2024-06-15"',
+          test: () => formatDateTime(TEST_TS) === '2024-06-15 14:30:45',
+          expected: '2024-06-15 14:30:45',
           getActual: () => formatDateTime(TEST_TS),
         },
       ],
@@ -1357,36 +1469,55 @@ function createTestCategories(): Record<TabName, TestCategory> {
         // getTimezone()
         {
           name: 'getTimezone() returns string',
-          test: () => typeof getTimezone() === 'string',
-          expected: 'string',
+          test: () => getTimezone().length > 0,
+          expected: 'non-empty IANA id',
           getActual: () => getTimezone(),
         },
-        // getTimezoneOffset()
         {
-          name: 'getTimezoneOffset() returns number',
-          test: () => typeof getTimezoneOffset() === 'number',
-          expected: 'number',
+          name: 'getTimezoneOffset() is east-positive minutes',
+          test: () => {
+            const offset = getTimezoneOffset();
+            return offset >= -720 && offset <= 840;
+          },
+          expected: '-720..840',
           getActual: () => String(getTimezoneOffset()),
         },
-        // getTimezoneOffsetForTimestamp()
         {
           name: 'getTimezoneOffsetForTimestamp()',
-          test: () => typeof getTimezoneOffsetForTimestamp(TEST_TS) === 'number',
-          expected: 'number',
-          getActual: () => String(getTimezoneOffsetForTimestamp(TEST_TS)),
+          test: () => {
+            const offset = getTimezoneOffsetForTimestamp(UTC_TS);
+            return offset >= -720 && offset <= 840;
+          },
+          expected: '-720..840',
+          getActual: () => String(getTimezoneOffsetForTimestamp(UTC_TS)),
         },
-        // getOffsetInTimezone()
         {
           name: 'getOffsetInTimezone() UTC = 0',
-          test: () => getOffsetInTimezone(TEST_TS, 'UTC') === 0,
+          test: () => getOffsetInTimezone(UTC_TS, 'UTC') === 0,
           expected: '0',
-          getActual: () => String(getOffsetInTimezone(TEST_TS, 'UTC')),
+          getActual: () => String(getOffsetInTimezone(UTC_TS, 'UTC')),
         },
         {
           name: 'getOffsetInTimezone() Tokyo = 540',
-          test: () => getOffsetInTimezone(TEST_TS, 'Asia/Tokyo') === 540,
+          test: () => getOffsetInTimezone(UTC_TS, 'Asia/Tokyo') === 540,
           expected: '540',
-          getActual: () => String(getOffsetInTimezone(TEST_TS, 'Asia/Tokyo')),
+          getActual: () => String(getOffsetInTimezone(UTC_TS, 'Asia/Tokyo')),
+        },
+        {
+          name: 'getOffsetInTimezone() GMT in July = 0',
+          test: () => getOffsetInTimezone(UTC_TS, 'GMT') === 0,
+          expected: '0',
+          getActual: () => String(getOffsetInTimezone(UTC_TS, 'GMT')),
+        },
+        {
+          name: "formatInTimezone(..., 'America/NewYork') throws",
+          test: () =>
+            didThrow(() => formatInTimezone(UTC_TS, 'yyyy', 'America/NewYork')),
+          expected: 'throws Invalid timezone',
+          getActual: () =>
+            didThrow(() => formatInTimezone(UTC_TS, 'yyyy', 'America/NewYork'))
+              ? 'throws'
+              : 'did not throw',
         },
         // isValidTimezone()
         {
@@ -1418,33 +1549,33 @@ function createTestCategories(): Record<TabName, TestCategory> {
         {
           name: 'formatInTimezone() UTC',
           test: () =>
-            formatInTimezone(TEST_TS, 'yyyy-MM-dd HH:mm', 'UTC') ===
+            formatInTimezone(UTC_TS, 'yyyy-MM-dd HH:mm', 'UTC') ===
             '2024-06-15 14:30',
           expected: '2024-06-15 14:30',
-          getActual: () => formatInTimezone(TEST_TS, 'yyyy-MM-dd HH:mm', 'UTC'),
+          getActual: () => formatInTimezone(UTC_TS, 'yyyy-MM-dd HH:mm', 'UTC'),
         },
         {
           name: 'formatInTimezone() Tokyo (+9)',
           test: () =>
-            formatInTimezone(TEST_TS, 'yyyy-MM-dd HH:mm', 'Asia/Tokyo') ===
+            formatInTimezone(UTC_TS, 'yyyy-MM-dd HH:mm', 'Asia/Tokyo') ===
             '2024-06-15 23:30',
           expected: '2024-06-15 23:30',
           getActual: () =>
-            formatInTimezone(TEST_TS, 'yyyy-MM-dd HH:mm', 'Asia/Tokyo'),
+            formatInTimezone(UTC_TS, 'yyyy-MM-dd HH:mm', 'Asia/Tokyo'),
         },
         // formatDateInTimezone/formatDateTimeInTimezone
         {
           name: 'formatDateInTimezone() UTC',
-          test: () => formatDateInTimezone(TEST_TS, 'UTC') === '2024-06-15',
+          test: () => formatDateInTimezone(UTC_TS, 'UTC') === '2024-06-15',
           expected: '2024-06-15',
-          getActual: () => formatDateInTimezone(TEST_TS, 'UTC'),
+          getActual: () => formatDateInTimezone(UTC_TS, 'UTC'),
         },
         {
           name: 'formatDateTimeInTimezone() UTC',
           test: () =>
-            formatDateTimeInTimezone(TEST_TS, 'UTC') === '2024-06-15 14:30:45',
+            formatDateTimeInTimezone(UTC_TS, 'UTC') === '2024-06-15 14:30:45',
           expected: '2024-06-15 14:30:45',
-          getActual: () => formatDateTimeInTimezone(TEST_TS, 'UTC'),
+          getActual: () => formatDateTimeInTimezone(UTC_TS, 'UTC'),
         },
         // isTodayInTz()
         {
@@ -1564,26 +1695,26 @@ function createTestCategories(): Record<TabName, TestCategory> {
         {
           name: 'startOfDayInTz() UTC midnight',
           test: () => {
-            const start = startOfDayInTz(TEST_TS, 'UTC');
+            const start = startOfDayInTz(UTC_TS, 'UTC');
             const formatted = formatInTimezone(start, 'HH:mm:ss', 'UTC');
             return formatted === '00:00:00';
           },
           expected: '00:00:00',
           getActual: () => {
-            const start = startOfDayInTz(TEST_TS, 'UTC');
+            const start = startOfDayInTz(UTC_TS, 'UTC');
             return formatInTimezone(start, 'HH:mm:ss', 'UTC');
           },
         },
         {
           name: 'startOfDayInTz() NY midnight = 04:00 UTC',
           test: () => {
-            const start = startOfDayInTz(TEST_TS, 'America/New_York');
+            const start = startOfDayInTz(UTC_TS, 'America/New_York');
             const utcTime = formatInTimezone(start, 'HH:mm:ss', 'UTC');
             return utcTime === '04:00:00';
           },
           expected: '04:00:00 UTC',
           getActual: () => {
-            const start = startOfDayInTz(TEST_TS, 'America/New_York');
+            const start = startOfDayInTz(UTC_TS, 'America/New_York');
             return formatInTimezone(start, 'HH:mm:ss', 'UTC');
           },
         },
@@ -1591,48 +1722,77 @@ function createTestCategories(): Record<TabName, TestCategory> {
         {
           name: 'endOfDayInTz() UTC',
           test: () => {
-            const end = endOfDayInTz(TEST_TS, 'UTC');
+            const end = endOfDayInTz(UTC_TS, 'UTC');
             const formatted = formatInTimezone(end, 'HH:mm:ss', 'UTC');
             return formatted === '23:59:59';
           },
           expected: '23:59:59',
           getActual: () => {
-            const end = endOfDayInTz(TEST_TS, 'UTC');
+            const end = endOfDayInTz(UTC_TS, 'UTC');
             return formatInTimezone(end, 'HH:mm:ss', 'UTC');
           },
         },
         {
           name: 'endOfDayInTz() 1ms before next start',
           test: () => {
-            const end = endOfDayInTz(TEST_TS, 'UTC');
-            const nextStart = startOfDayInTz(addDays(TEST_TS, 1), 'UTC');
+            const end = endOfDayInTz(UTC_TS, 'UTC');
+            const nextStart = startOfDayInTz(addDays(UTC_TS, 1), 'UTC');
             return nextStart - end === 1;
           },
           expected: 'diff = 1ms',
           getActual: () => {
-            const end = endOfDayInTz(TEST_TS, 'UTC');
-            const nextStart = startOfDayInTz(addDays(TEST_TS, 1), 'UTC');
+            const end = endOfDayInTz(UTC_TS, 'UTC');
+            const nextStart = startOfDayInTz(addDays(UTC_TS, 1), 'UTC');
             return `diff = ${nextStart - end}ms`;
           },
         },
         // Locale
         {
           name: 'getLocale() returns string',
-          test: () => typeof getLocale() === 'string',
-          expected: 'string',
+          test: () => getLocale().length > 0,
+          expected: 'non-empty locale tag',
           getActual: () => getLocale(),
         },
         {
           name: 'getAvailableLocales() returns object',
-          test: () => typeof getAvailableLocales() === 'object',
-          expected: 'object',
-          getActual: () => `${Object.keys(getAvailableLocales()).length} locales`,
+          test: () => Object.keys(getAvailableLocales()).length > 0,
+          expected: 'non-empty locale map',
+          getActual: () =>
+            `${Object.keys(getAvailableLocales()).length} locales`,
         },
         {
           name: 'getLocaleDisplayName() en',
-          test: () => getLocaleDisplayName('en').toLowerCase().includes('english'),
+          test: () =>
+            getLocaleDisplayName('en').toLowerCase().includes('english'),
           expected: 'contains "english"',
           getActual: () => getLocaleDisplayName('en'),
+        },
+        {
+          name: "setLocale('ja') + MMMM",
+          test: () => {
+            const previous = getLocale();
+            const ok = setLocale('ja');
+            const name = format(TEST_TS, 'MMMM');
+            setLocale(previous);
+            return ok && name === '6月';
+          },
+          expected: '6月',
+          getActual: () => {
+            const previous = getLocale();
+            setLocale('ja');
+            const name = format(TEST_TS, 'MMMM');
+            setLocale(previous);
+            return name;
+          },
+        },
+        {
+          name: 'NativeDateModule.isToday(NaN) throws',
+          test: () => didThrow(() => NativeDateModule.isToday(NaN)),
+          expected: 'throws',
+          getActual: () =>
+            didThrow(() => NativeDateModule.isToday(NaN))
+              ? 'throws'
+              : 'did not throw',
         },
         {
           name: 'getLocaleInfo() returns object',
@@ -1673,13 +1833,13 @@ function createTestCategories(): Record<TabName, TestCategory> {
         {
           name: 'setYear() Feb 29 to non-leap clamps to 28',
           test: () => {
-            const feb29 = parse('2024-02-29T12:00:00Z');
+            const feb29 = parse('2024-02-29T12:00:00');
             const result = setYear(feb29, 2023);
             return getDate(result) === 28;
           },
           expected: 'day = 28',
           getActual: () => {
-            const feb29 = parse('2024-02-29T12:00:00Z');
+            const feb29 = parse('2024-02-29T12:00:00');
             const result = setYear(feb29, 2023);
             return String(getDate(result));
           },
@@ -1694,13 +1854,13 @@ function createTestCategories(): Record<TabName, TestCategory> {
         {
           name: 'setMonth() clamps day (Jan 31 -> Feb)',
           test: () => {
-            const jan31 = parse('2024-01-31T12:00:00Z');
+            const jan31 = parse('2024-01-31T12:00:00');
             const result = setMonth(jan31, 2);
-            return getMonth(result) === 2 && getDate(result) === 29; // 2024 leap
+            return getMonth(result) === 2 && getDate(result) === 29;
           },
           expected: 'Feb 29',
           getActual: () => {
-            const jan31 = parse('2024-01-31T12:00:00Z');
+            const jan31 = parse('2024-01-31T12:00:00');
             const r = setMonth(jan31, 2);
             return `${getMonth(r)}/${getDate(r)}`;
           },
@@ -1768,7 +1928,8 @@ function createTestCategories(): Record<TabName, TestCategory> {
           name: 'setMilliseconds() to 500',
           test: () => getMilliseconds(setMilliseconds(TEST_TS, 500)) === 500,
           expected: '500',
-          getActual: () => String(getMilliseconds(setMilliseconds(TEST_TS, 500))),
+          getActual: () =>
+            String(getMilliseconds(setMilliseconds(TEST_TS, 500))),
         },
         {
           name: 'setMilliseconds() to 0',
@@ -1780,7 +1941,8 @@ function createTestCategories(): Record<TabName, TestCategory> {
           name: 'setMilliseconds() to 999',
           test: () => getMilliseconds(setMilliseconds(TEST_TS, 999)) === 999,
           expected: '999',
-          getActual: () => String(getMilliseconds(setMilliseconds(TEST_TS, 999))),
+          getActual: () =>
+            String(getMilliseconds(setMilliseconds(TEST_TS, 999))),
         },
         // Chaining
         {
@@ -1827,19 +1989,53 @@ function createTestCategories(): Record<TabName, TestCategory> {
         {
           name: 'formatManyAsync() formats array',
           test: async () => {
-            const results = await formatManyAsync(
-              [TEST_TS, EARLIER_TS, LATER_TS],
-              'yyyy-MM-dd'
-            );
-            return results.length === 3 && results[0] === '2024-06-15';
+            const results = await formatManyAsync([TEST_TS], 'yyyy-MM-dd');
+            return results.length === 1 && results[0] === '2024-06-15';
           },
-          expected: '3 formatted strings',
+          expected: '2024-06-15',
+          getActual: async () => {
+            const results = await formatManyAsync([TEST_TS], 'yyyy-MM-dd');
+            return results.join(', ');
+          },
+        },
+        {
+          name: "formatManyAsync([ts], 'MMMM d') is June 15",
+          test: async () => {
+            const previous = getLocale();
+            setLocale('en');
+            const results = await formatManyAsync([TEST_TS], 'MMMM d');
+            setLocale(previous);
+            return results[0] === 'June 15';
+          },
+          expected: 'June 15',
+          getActual: async () => {
+            const previous = getLocale();
+            setLocale('en');
+            const results = await formatManyAsync([TEST_TS], 'MMMM d');
+            setLocale(previous);
+            return results[0] ?? '';
+          },
+        },
+        {
+          name: 'formatManyAsync NaN element is empty string',
+          test: async () => {
+            const results = await formatManyAsync(
+              [TEST_TS, NaN, TEST_TS],
+              'yyyy'
+            );
+            return (
+              results[0] === '2024' &&
+              results[1] === '' &&
+              results[2] === '2024'
+            );
+          },
+          expected: "['2024', '', '2024']",
           getActual: async () => {
             const results = await formatManyAsync(
-              [TEST_TS, EARLIER_TS, LATER_TS],
-              'yyyy-MM-dd'
+              [TEST_TS, NaN, TEST_TS],
+              'yyyy'
             );
-            return results.join(', ');
+            return JSON.stringify(results);
           },
         },
         // getComponentsManyAsync
@@ -1886,7 +2082,9 @@ export function NativeTestScreen() {
     for (const testCase of category.tests) {
       try {
         const testFn = testCase.test as () => boolean | Promise<boolean>;
-        const getActualFn = testCase.getActual as () => string | Promise<string>;
+        const getActualFn = testCase.getActual as () =>
+          | string
+          | Promise<string>;
 
         const passed = await testFn();
         const actual = await getActualFn();
@@ -1925,10 +2123,14 @@ export function NativeTestScreen() {
     const lines: string[] = [];
 
     lines.push('');
-    lines.push('═══════════════════════════════════════════════════════════════');
+    lines.push(
+      '═══════════════════════════════════════════════════════════════'
+    );
     lines.push('  NATIVE DATE TEST RESULTS');
     lines.push(`  ${timestamp}`);
-    lines.push('═══════════════════════════════════════════════════════════════');
+    lines.push(
+      '═══════════════════════════════════════════════════════════════'
+    );
     lines.push('');
 
     let totalPassed = 0;
@@ -1943,7 +2145,9 @@ export function NativeTestScreen() {
       totalPassed += passed;
       totalFailed += failed;
 
-      lines.push(`┌─ ${tab.toUpperCase()} (${passed}/${tabResults.length} passed)`);
+      lines.push(
+        `┌─ ${tab.toUpperCase()} (${passed}/${tabResults.length} passed)`
+      );
       lines.push('│');
 
       for (const result of tabResults) {
@@ -1958,23 +2162,39 @@ export function NativeTestScreen() {
         }
       }
       lines.push('│');
-      lines.push('└───────────────────────────────────────────────────────────');
+      lines.push(
+        '└───────────────────────────────────────────────────────────'
+      );
       lines.push('');
     }
 
-    lines.push('═══════════════════════════════════════════════════════════════');
+    lines.push(
+      '═══════════════════════════════════════════════════════════════'
+    );
     lines.push(`  SUMMARY: ${totalPassed} passed, ${totalFailed} failed`);
     lines.push(`  TOTAL:   ${totalPassed + totalFailed} tests`);
-    lines.push(`  STATUS:  ${totalFailed === 0 ? '\u2705 ALL TESTS PASSED' : '\u274C SOME TESTS FAILED'}`);
-    lines.push('═══════════════════════════════════════════════════════════════');
+    lines.push(
+      `  STATUS:  ${
+        totalFailed === 0
+          ? '\u2705 ALL TESTS PASSED'
+          : '\u274C SOME TESTS FAILED'
+      }`
+    );
+    lines.push(
+      '═══════════════════════════════════════════════════════════════'
+    );
     lines.push('');
 
     // Add failed tests summary at the end for easy copy/paste
     if (totalFailed > 0) {
       lines.push('');
-      lines.push('═══════════════════════════════════════════════════════════════');
+      lines.push(
+        '═══════════════════════════════════════════════════════════════'
+      );
       lines.push('  FAILED TESTS (copy-friendly):');
-      lines.push('═══════════════════════════════════════════════════════════════');
+      lines.push(
+        '═══════════════════════════════════════════════════════════════'
+      );
       lines.push('');
       for (const tab of TABS) {
         const tabResults = results[tab];
@@ -2016,7 +2236,7 @@ export function NativeTestScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Native Tests</Text>
         <View style={styles.summary}>
-          <Text style={styles.summaryText}>
+          <Text testID="native-test-summary" style={styles.summaryText}>
             Total: {allPassed}/{allTotal} passed
             {allFailed > 0 && (
               <Text style={styles.failedText}> ({allFailed} failed)</Text>
@@ -2046,7 +2266,10 @@ export function NativeTestScreen() {
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.logButton, allResults.length === 0 && styles.runButtonDisabled]}
+          style={[
+            styles.logButton,
+            allResults.length === 0 && styles.runButtonDisabled,
+          ]}
           onPress={logResults}
           disabled={allResults.length === 0}
         >
@@ -2073,7 +2296,10 @@ export function NativeTestScreen() {
               onPress={() => setActiveTab(tab)}
             >
               <Text
-                style={[styles.tabText, activeTab === tab && styles.tabTextActive]}
+                style={[
+                  styles.tabText,
+                  activeTab === tab && styles.tabTextActive,
+                ]}
               >
                 {tab}
               </Text>
@@ -2081,7 +2307,9 @@ export function NativeTestScreen() {
                 <View
                   style={[
                     styles.tabBadge,
-                    tabFailed > 0 ? styles.tabBadgeFailed : styles.tabBadgePassed,
+                    tabFailed > 0
+                      ? styles.tabBadgeFailed
+                      : styles.tabBadgePassed,
                   ]}
                 >
                   <Text style={styles.tabBadgeText}>

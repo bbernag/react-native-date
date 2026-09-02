@@ -22,6 +22,7 @@ import {
   getMonth,
   getDate,
   getDay,
+  getHours,
   getMinutes,
   getSeconds,
   getMilliseconds,
@@ -44,21 +45,27 @@ describe('Date Standards Compliance', () => {
   // ============================================================
   describe('ISO 8601 Parsing', () => {
     describe('Date-only formats', () => {
-      it('should parse YYYY-MM-DD format', () => {
+      it('should parse YYYY-MM-DD as local midnight', () => {
         const result = parse('2024-12-25');
         expect(result).toBeValidTimestamp();
-        expect(formatUTC(result, 'yyyy-MM-dd')).toBe('2024-12-25');
+        expect(getYear(result)).toBe(2024);
+        expect(getMonth(result)).toBe(12);
+        expect(getDate(result)).toBe(25);
+        expect(getHours(result)).toBe(0);
+        expect(getMinutes(result)).toBe(0);
       });
 
       it('should parse dates at year boundaries', () => {
-        expect(formatUTC(parse('2024-01-01'), 'yyyy-MM-dd')).toBe('2024-01-01');
-        expect(formatUTC(parse('2024-12-31'), 'yyyy-MM-dd')).toBe('2024-12-31');
+        expect(getMonth(parse('2024-01-01'))).toBe(1);
+        expect(getDate(parse('2024-01-01'))).toBe(1);
+        expect(getMonth(parse('2024-12-31'))).toBe(12);
+        expect(getDate(parse('2024-12-31'))).toBe(31);
       });
 
       it('should parse dates with minimum and maximum days', () => {
-        expect(formatUTC(parse('2024-01-01'), 'dd')).toBe('01');
-        expect(formatUTC(parse('2024-01-31'), 'dd')).toBe('31');
-        expect(formatUTC(parse('2024-06-30'), 'dd')).toBe('30');
+        expect(getDate(parse('2024-01-01'))).toBe(1);
+        expect(getDate(parse('2024-01-31'))).toBe(31);
+        expect(getDate(parse('2024-06-30'))).toBe(30);
       });
     });
 
@@ -224,9 +231,13 @@ describe('Date Standards Compliance', () => {
   // ============================================================
   describe('Month Overflow Handling', () => {
     describe('Adding months with day overflow', () => {
-      // Note: JavaScript Date overflow behavior causes day overflow to roll into next month
-      // Jan 31 + 1 month = Feb 31 = Mar 2 or Mar 3 (depending on leap year)
-      // This is standard JS Date behavior that our library follows
+      // Month/year arithmetic clamps to the last valid day (Q1).
+
+      it('should clamp Jan 31 + 1 month to Feb 29 in a leap year', () => {
+        const jan31 = parse('2024-01-31T12:00:00Z');
+        const result = addMonths(jan31, 1);
+        expect(formatUTC(result, 'yyyy-MM-dd')).toBe('2024-02-29');
+      });
 
       it('should handle Jan 15 + 1 month (no overflow)', () => {
         const jan15 = parse('2024-01-15T12:00:00Z');
@@ -502,18 +513,16 @@ describe('Date Standards Compliance', () => {
     });
 
     describe('diffInMonths', () => {
-      it('should calculate months between dates', () => {
+      it('should count complete local months', () => {
         const date1 = parse('2024-01-15T12:00:00Z');
-        const date2 = parse('2024-06-16T12:00:00Z'); // One extra day to ensure full 5 months
-        expect(diffInMonths(date2, date1)).toBeGreaterThanOrEqual(4);
-        expect(diffInMonths(date2, date1)).toBeLessThanOrEqual(5);
+        const date2 = parse('2024-06-16T12:00:00Z');
+        expect(diffInMonths(date2, date1)).toBe(5);
       });
 
       it('should handle year boundaries', () => {
         const date1 = parse('2024-11-15T12:00:00Z');
         const date2 = parse('2025-02-16T12:00:00Z');
-        expect(diffInMonths(date2, date1)).toBeGreaterThanOrEqual(2);
-        expect(diffInMonths(date2, date1)).toBeLessThanOrEqual(3);
+        expect(diffInMonths(date2, date1)).toBe(3);
       });
     });
 
@@ -641,8 +650,7 @@ describe('Date Standards Compliance', () => {
   // INVALID INPUT HANDLING
   // ============================================================
   describe('Invalid Input Handling', () => {
-    // Note: Date.parse is lenient and allows overflow (e.g., month 13 becomes next year's Jan)
-    // These tests verify what IS actually rejected vs what gets normalized
+    // Strict ISO-8601: invalid calendar dates and non-ISO strings are rejected.
 
     describe('Malformed strings', () => {
       it('should reject empty string', () => {
@@ -660,17 +668,10 @@ describe('Date Standards Compliance', () => {
       });
     });
 
-    describe('Valid parsing with overflow normalization', () => {
-      // Date.parse normalizes overflow values rather than rejecting them
-      // This is standard JavaScript behavior
-
-      it('should parse and normalize Feb 30 to March', () => {
-        // Feb 30, 2024 -> Mar 1, 2024 (leap year)
-        const result = tryParse('2024-02-30');
-        if (result !== null) {
-          expect(formatUTC(result, 'MM')).toBe('03');
-          expect(formatUTC(result, 'dd')).toBe('01');
-        }
+    describe('Calendar validation', () => {
+      it('should reject Feb 30 rather than overflowing to March', () => {
+        expect(tryParse('2024-02-30')).toBeNull();
+        expect(() => parse('2024-02-30')).toThrow(/Invalid ISO-8601/);
       });
 
       it('should parse standard dates without issue', () => {
@@ -702,10 +703,8 @@ describe('Date Standards Compliance', () => {
         expect(formatUTC(testDate, 'MM')).toBe('06');
       });
 
-      it('should format M (1-digit month)', () => {
-        // Single M should return minimal representation
-        const result = formatUTC(testDate, 'M');
-        expect(result.length).toBeGreaterThanOrEqual(1);
+      it('should format M as the narrow month name', () => {
+        expect(formatUTC(testDate, 'M')).toBe('J');
       });
     });
 

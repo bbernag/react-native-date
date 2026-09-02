@@ -1,11 +1,13 @@
 import {
   parse,
+  formatUTC,
   getTimezone,
   getTimezoneOffset,
   getOffsetInTimezone,
   formatInTimezone,
   getAvailableTimezones,
   isValidTimezone,
+  toTimezone,
   toUTC,
   formatInUTC,
   now,
@@ -38,7 +40,8 @@ describe('Timezone Functions', () => {
       expect(typeof offset).toBe('number');
     });
 
-    it('should be within valid range (-720 to 840)', () => {
+    it('should be within the east-positive range covering UTC-12..UTC+14', () => {
+      // East-positive minutes (Tokyo = +540), opposite of Date#getTimezoneOffset.
       const offset = getTimezoneOffset();
       expect(offset).toBeGreaterThanOrEqual(-720);
       expect(offset).toBeLessThanOrEqual(840);
@@ -86,6 +89,59 @@ describe('Timezone Functions', () => {
       expect(isValidTimezone('Invalid/Timezone')).toBe(false);
       expect(isValidTimezone('')).toBe(false);
       expect(isValidTimezone('Not_A_Timezone')).toBe(false);
+      expect(isValidTimezone('America/NewYork')).toBe(false);
+    });
+
+    it('should accept UTC aliases', () => {
+      expect(isValidTimezone('UTC')).toBe(true);
+      expect(isValidTimezone('utc')).toBe(true);
+      expect(isValidTimezone('Etc/UTC')).toBe(true);
+      expect(isValidTimezone('Z')).toBe(true);
+    });
+  });
+
+  describe('invalid timezone names throw (Q4)', () => {
+    const ts = parse('2024-06-15T12:00:00Z');
+
+    it('throws Invalid timezone for unknown names', () => {
+      expect(() => formatInTimezone(ts, 'yyyy', 'America/NewYork')).toThrow(
+        /Invalid timezone: 'America\/NewYork'/
+      );
+      expect(() => getOffsetInTimezone(ts, 'Not_A_Timezone')).toThrow(
+        /Invalid timezone/
+      );
+    });
+  });
+
+  describe('toTimezone() shifted-epoch semantics (Q5)', () => {
+    it('shifts the epoch so formatUTC shows the zone wall clock', () => {
+      const ts = parse('2024-06-15T12:00:00Z');
+      const tokyo = toTimezone(ts, 'Asia/Tokyo');
+      expect(formatUTC(tokyo, 'HH:mm')).toBe('21:00');
+      expect(formatInTimezone(ts, 'HH:mm', 'Asia/Tokyo')).toBe('21:00');
+      expect(tokyo).not.toBe(ts);
+    });
+
+    it('is a no-op for UTC', () => {
+      const ts = parse('2024-06-15T12:00:00Z');
+      expect(toTimezone(ts, 'UTC')).toBe(ts);
+      expect(toTimezone(ts, 'utc')).toBe(ts);
+      expect(toUTC(ts)).toBe(ts);
+    });
+  });
+
+  describe('abbreviation aliases', () => {
+    it('GMT and WET are offset 0 year-round', () => {
+      const july = parse('2024-07-15T12:00:00Z');
+      const january = parse('2024-01-15T12:00:00Z');
+      expect(getOffsetInTimezone(july, 'GMT')).toBe(0);
+      expect(getOffsetInTimezone(january, 'WET')).toBe(0);
+    });
+
+    it('Kolkata is fixed +330', () => {
+      const july = parse('2024-07-15T12:00:00Z');
+      expect(getOffsetInTimezone(july, 'Asia/Kolkata')).toBe(330);
+      expect(getOffsetInTimezone(july, 'IST')).toBe(330);
     });
   });
 

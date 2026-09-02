@@ -138,7 +138,7 @@ describe('Date Differences', () => {
     it('diffInMonths should return months', () => {
       const date1 = parse('2024-09-15');
       const date2 = parse('2024-06-15');
-      expect(diffInMonths(date1, date2)).toBeGreaterThanOrEqual(2);
+      expect(diffInMonths(date1, date2)).toBe(3);
     });
 
     it('diffInYears should return years', () => {

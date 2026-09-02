@@ -265,3 +265,12 @@ describe('Comparators accept any DateInput or chain', () => {
     expect(NativeDateChain.from(a)).not.toBe(a);
   });
 });
+
+describe('Chain toTimezone is the shifted-epoch helper', () => {
+  it('matches the functional toTimezone and formatInTimezone', () => {
+    const ts = parse('2024-06-15T12:00:00Z');
+    const chained = nativeDate(ts).toTimezone('Asia/Tokyo');
+    expect(chained.formatUTC('HH:mm')).toBe('21:00');
+    expect(chained.valueOf()).not.toBe(ts);
+  });
+});

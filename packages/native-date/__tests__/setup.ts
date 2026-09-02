@@ -1,7 +1,15 @@
 // Jest setup file
 // Add any global test configuration here
 
+import { getNative } from '../src/native';
+
 export {};
+
+beforeEach(() => {
+  // The mock locale is process-global per Jest worker; reset so files that
+  // call setLocale cannot leak into format-token tests in other files.
+  getNative().setLocale('en');
+});
 
 // Extend Jest matchers if needed
 expect.extend({
