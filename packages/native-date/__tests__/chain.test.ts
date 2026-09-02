@@ -195,3 +195,73 @@ describe('module graph', () => {
     });
   });
 });
+
+describe('Coercion: toJSON / toString / Symbol.toPrimitive', () => {
+  const iso = '2024-06-15T10:30:45.123Z';
+  const chain = nativeDate(parse(iso));
+
+  it('JSON.stringify emits the ISO 8601 UTC string, not the internal field', () => {
+    expect(chain.toJSON()).toBe(iso);
+    expect(JSON.stringify(chain)).toBe(`"${iso}"`);
+    expect(JSON.stringify({ at: chain })).toBe(`{"at":"${iso}"}`);
+    expect(JSON.stringify(chain)).not.toContain('ts');
+  });
+
+  it('does not expose the timestamp as an own enumerable property', () => {
+    expect(Object.keys(chain)).toEqual([]);
+    expect((chain as unknown as Record<string, unknown>).ts).toBeUndefined();
+  });
+
+  it('toString() is the local yyyy-MM-dd HH:mm:ss text', () => {
+    expect(chain.toString()).toBe(chain.formatDateTime());
+    expect(String(chain)).toBe('2024-06-15 10:30:45');
+    expect(`${chain}`).toBe('2024-06-15 10:30:45');
+  });
+
+  it('numeric and default hints give the timestamp', () => {
+    const ts = parse(iso);
+    expect(+chain).toBe(ts);
+    expect(Number(chain) - 0).toBe(ts);
+    expect(chain[Symbol.toPrimitive]('default')).toBe(ts);
+    expect(chain[Symbol.toPrimitive]('string')).toBe('2024-06-15 10:30:45');
+    expect(chain > nativeDate(ts - 1)).toBe(true);
+  });
+});
+
+describe('Comparators accept any DateInput or chain', () => {
+  const a = nativeDate('2024-06-15T10:00:00Z');
+  const laterTs = parse('2024-06-16T10:00:00Z');
+
+  it('isBefore / isAfter / isSame with chain, number, string and Date', () => {
+    expect(a.isBefore(nativeDate(laterTs))).toBe(true);
+    expect(a.isBefore(laterTs)).toBe(true);
+    expect(a.isBefore('2024-06-16T10:00:00Z')).toBe(true);
+    expect(a.isBefore(new Date(laterTs))).toBe(true);
+    expect(a.isAfter(new Date(laterTs))).toBe(false);
+    expect(a.isSame('2024-06-15T23:00:00', 'day')).toBe(true);
+  });
+
+  it('isSameDay / isSameMonth / isSameYear with strings and Dates', () => {
+    expect(a.isSameDay('2024-06-15')).toBe(true);
+    expect(a.isSameDay(new Date(laterTs))).toBe(false);
+    expect(a.isSameMonth('2024-06-01')).toBe(true);
+    expect(a.isSameYear(nativeDate('2024-01-01'))).toBe(true);
+  });
+
+  it('diff helpers with strings, Dates and chains', () => {
+    expect(a.diffInDays('2024-06-10T10:00:00Z')).toBe(5);
+    expect(a.diffInHours(new Date(laterTs))).toBe(-24);
+    expect(a.diff(nativeDate(laterTs), 'day')).toBe(-1);
+  });
+
+  it('predicates return false for invalid input; diff throws', () => {
+    expect(a.isBefore('invalid')).toBe(false);
+    expect(a.isSameDay(NaN)).toBe(false);
+    expect(() => a.diffInDays('invalid')).toThrow();
+  });
+
+  it('factories accept another chain', () => {
+    expect(nativeDate(a).valueOf()).toBe(a.valueOf());
+    expect(NativeDateChain.from(a)).not.toBe(a);
+  });
+});

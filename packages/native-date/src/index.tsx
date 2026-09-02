@@ -16,6 +16,7 @@ export type {
 export type { DateInput } from './types';
 export type { Timezone } from './timezone';
 export type { AvailableLocalesMap, Locale } from './locale';
+export type { FormatDistanceOptions } from './format';
 
 // Native binding (advanced / internal)
 export { NativeDateModule } from './native';

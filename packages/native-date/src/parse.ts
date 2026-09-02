@@ -35,8 +35,9 @@ export function parse(dateString: string): number {
  * @see tryParseFormat - For custom format patterns
  */
 export function tryParse(dateString: string): number | null {
+  const native = getNative();
   try {
-    const timestamp = getNative().parse(dateString);
+    const timestamp = native.parse(dateString);
     return Number.isFinite(timestamp) ? timestamp : null;
   } catch {
     return null;
@@ -73,15 +74,22 @@ export function tryParse(dateString: string): number | null {
  * parseFormat('12/25/2024 02:30 PM', 'MM/dd/yyyy hh:mm A')  // → timestamp
  * ```
  *
- * @throws Error if the date string doesn't match the pattern
+ * The result is interpreted in the device's local time zone.
+ *
+ * @throws Error if the date string doesn't match the pattern or is not a valid
+ * date. Use `tryParseFormat()` to get `null` instead of an exception.
+ *
+ * @see tryParseFormat - Non-throwing variant
+ * @see parse - ISO 8601 parsing
  */
 export function parseFormat(dateString: string, pattern: string): number {
   return getNative().parseFormat(dateString, pattern);
 }
 
 /**
- * Safely parse a date string using a custom format pattern
- * Returns null if parsing fails
+ * Safely parse a date string using a custom format pattern.
+ * Same tokens and local-time semantics as {@link parseFormat}; invalid input
+ * yields `null` instead of an exception.
  *
  * @example
  * ```typescript

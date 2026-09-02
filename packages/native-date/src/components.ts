@@ -49,7 +49,11 @@ export function fromComponents(components: {
   return date.getTime();
 }
 
-// Helper: create timestamp from local time components (unlike fromComponents which uses UTC)
+/**
+ * Create a timestamp from date components interpreted in the device's local
+ * time zone (internal counterpart of {@link fromComponents}, used by the setters).
+ * The year is taken literally, like `fromComponents`.
+ */
 export function fromComponentsLocal(components: {
   year: number;
   month: number;

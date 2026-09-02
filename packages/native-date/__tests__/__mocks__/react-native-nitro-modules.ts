@@ -912,6 +912,9 @@ const mockNativeDate = {
   getAvailableTimezones: () => AVAILABLE_TIMEZONES,
   isValidTimezone: (tz: string) => AVAILABLE_TIMEZONES.includes(tz),
 
+  // Locale (minimal)
+  getAvailableLocales: () => ['en', 'es', 'fr', 'pt_BR'],
+
   // Timezone-aware predicates (InTz)
   isTodayInTz: (ts: number, tz: string) => {
     const dateStr = mockNativeDate.formatInTimezone(ts, 'yyyy-MM-dd', tz);

@@ -48,6 +48,7 @@ import {
   fromComponents,
   setYear,
   NativeDateModule,
+  getAvailableLocales,
 } from '../src/index';
 
 // Accepted by JS `Date.parse()` but not by the library's ISO 8601 parser.
@@ -347,11 +348,89 @@ describe('lazy native binding', () => {
     });
   });
 
+  it('a missing native module surfaces as a setup error, not as invalid input', () => {
+    jest.isolateModules(() => {
+      jest.doMock('react-native-nitro-modules', () => ({
+        NitroModules: {
+          createHybridObject: () => {
+            throw new Error('HybridObject "NativeDate" not found');
+          },
+        },
+      }));
+      const lib = require('../src/index') as typeof import('../src/index');
+      expect(() => lib.isValid('2024-12-25')).toThrow(/development build/);
+      expect(() => lib.isToday('2024-12-25')).toThrow(/development build/);
+      expect(() => lib.tryParse('2024-12-25')).toThrow(/development build/);
+      jest.dontMock('react-native-nitro-modules');
+    });
+  });
+
   it('NativeDateModule stays available as a lazily-bound proxy', () => {
     expect(NativeDateModule.parse('2024-12-25')).toBe(parse('2024-12-25'));
     expect(NativeDateModule.format(parse('2024-12-25'), 'yyyy-MM-dd')).toBe(
       '2024-12-25'
     );
     expect('parse' in NativeDateModule).toBe(true);
+  });
+});
+
+describe('formatDistance()', () => {
+  const base = parse('2024-06-15T12:00:00Z');
+  const twoHoursEarlier = base - 2 * 60 * 60 * 1000;
+
+  it('options object matches the positional form', () => {
+    expect(formatDistance(twoHoursEarlier, { base })).toBe(
+      formatDistance(twoHoursEarlier, base, true)
+    );
+    expect(formatDistance(twoHoursEarlier, { base, addSuffix: false })).toBe(
+      formatDistance(twoHoursEarlier, base, false)
+    );
+  });
+
+  it('addSuffix defaults to true and can be disabled', () => {
+    expect(formatDistance(twoHoursEarlier, { base })).toMatch(/ago$/);
+    expect(
+      formatDistance(twoHoursEarlier, { base, addSuffix: false })
+    ).not.toMatch(/ago$/);
+    expect(formatDistance(twoHoursEarlier, base)).toMatch(/ago$/);
+  });
+
+  it('base accepts any DateInput and defaults to now', () => {
+    expect(formatDistance(twoHoursEarlier, { base: new Date(base) })).toBe(
+      formatDistance(twoHoursEarlier, { base })
+    );
+    expect(
+      formatDistance(twoHoursEarlier, { base: '2024-06-15T12:00:00Z' })
+    ).toBe(formatDistance(twoHoursEarlier, { base }));
+    expect(formatDistance(now() - 5 * 60 * 1000)).toBe(
+      formatDistance(now() - 5 * 60 * 1000, {})
+    );
+  });
+
+  it('a Date passed positionally is a base date, not an options object', () => {
+    expect(formatDistance(twoHoursEarlier, new Date(base))).toBe(
+      formatDistance(twoHoursEarlier, base)
+    );
+  });
+
+  it('throws on invalid date or base', () => {
+    expect(() => formatDistance(NaN, { base })).toThrow(/Invalid date input/);
+    expect(() => formatDistance(base, { base: 'invalid' })).toThrow();
+  });
+});
+
+describe('getAvailableLocales()', () => {
+  it('maps every available locale to itself', () => {
+    const locales = getAvailableLocales();
+    expect(locales.en).toBe('en');
+    expect(locales.es).toBe('es');
+    expect(locales.xx).toBeUndefined();
+    expect(Object.keys(locales)).toEqual(['en', 'es', 'fr', 'pt_BR']);
+  });
+
+  it('is memoized and frozen', () => {
+    const first = getAvailableLocales();
+    expect(getAvailableLocales()).toBe(first);
+    expect(Object.isFrozen(first)).toBe(true);
   });
 });

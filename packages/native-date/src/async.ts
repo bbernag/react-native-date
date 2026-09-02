@@ -4,15 +4,19 @@ import { getNative } from './native';
 // Async batch operations (run on background thread)
 
 /**
- * Parse multiple date strings asynchronously on a background thread
- * Returns NaN for invalid dates instead of throwing
+ * Parse many ISO 8601 strings on a background thread (same semantics as
+ * {@link parse}, date-only strings are local midnight).
+ *
+ * Batch APIs never reject for bad input: each invalid string yields `NaN` at its
+ * position in the result.
  */
 export function parseManyAsync(dateStrings: string[]): Promise<number[]> {
   return getNative().parseManyAsync(dateStrings);
 }
 
 /**
- * Format multiple timestamps asynchronously on a background thread
+ * Format many timestamps with one pattern on a background thread (same tokens
+ * and local-time semantics as {@link format}).
  */
 export function formatManyAsync(
   timestamps: number[],
@@ -22,7 +26,8 @@ export function formatManyAsync(
 }
 
 /**
- * Get components for multiple timestamps asynchronously on a background thread
+ * Local-time components for many timestamps on a background thread (same result
+ * shape as {@link getComponents}).
  */
 export function getComponentsManyAsync(
   timestamps: number[]

@@ -1,8 +1,10 @@
 import { getNative } from './native';
 
 /**
- * Returns the current timestamp in milliseconds since Unix epoch (UTC)
- * Uses native C++ std::chrono::system_clock
+ * Current timestamp in milliseconds since the Unix epoch (UTC).
+ *
+ * Read from the native system clock (`std::chrono::system_clock`),
+ * so it agrees with the timestamps produced by every other function here.
  */
 export function now(): number {
   return getNative().now();

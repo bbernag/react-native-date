@@ -1,8 +1,12 @@
 import { getNative } from './native';
 
 /**
- * IANA Timezone identifiers
- * Complete list of canonical timezones supported by iOS and Android
+ * IANA time zone identifier (e.g. `'America/New_York'`).
+ *
+ * The listed literals are canonical zones supported by iOS and Android and exist
+ * for autocompletion only; any other string is also accepted by the type. Use
+ * {@link isValidTimezone} to check a name at runtime. Functions that take a
+ * `Timezone` throw on names the device does not recognize.
  */
 export type Timezone =
   // UTC
@@ -333,6 +337,20 @@ export type Timezone =
   // Allow any string for edge cases
   | (string & {});
 
+/**
+ * Whether `timezone` is an IANA zone name the device recognizes
+ * (e.g. `'America/New_York'`, `'UTC'`).
+ *
+ * This is the runtime gate: the {@link Timezone} type only provides
+ * autocompletion and accepts any string. Every function that takes a
+ * `Timezone` throws when given a name this function rejects.
+ *
+ * @example
+ * ```typescript
+ * isValidTimezone('Europe/Paris'); // true
+ * isValidTimezone('Not/AZone');    // false
+ * ```
+ */
 export function isValidTimezone(timezone: Timezone): boolean {
   return getNative().isValidTimezone(timezone);
 }

@@ -115,28 +115,28 @@ export function setLocale(locale: Locale): boolean {
 }
 
 /**
- * Type for the object returned by getAvailableLocales().
- * Maps locale codes to themselves for easy access.
+ * Object returned by {@link getAvailableLocales}: every available locale code
+ * mapped to itself, so membership checks read naturally (`if (locales.es)`).
+ * Under `noUncheckedIndexedAccess` a lookup is `Locale | undefined`, which is
+ * exactly the "may not be available" semantics.
  */
-export type AvailableLocalesMap = {
-  [key: string]: Locale;
-};
+export type AvailableLocalesMap = Readonly<Partial<Record<Locale, Locale>>>;
+
+let availableLocalesCache: AvailableLocalesMap | undefined;
 
 /**
- * Get all available locales for date formatting as an object.
+ * Get all locales available for date formatting as a lookup object.
  *
- * @returns An object mapping locale codes to themselves (e.g., `{ en: 'en', es: 'es', ... }`)
+ * The result is computed once and memoized (the set of installed locales does
+ * not change while the app runs) and is frozen.
+ *
+ * @returns A frozen object mapping locale codes to themselves
+ * (e.g. `{ en: 'en', es: 'es', ... }`)
  *
  * @remarks
  * The available locales are determined by the device's operating system:
  * - **iOS**: Uses `NSLocale.availableLocaleIdentifiers`
  * - **Android**: Uses `Locale.getAvailableLocales()`
- *
- * Returns an object instead of an array for convenient access:
- * ```typescript
- * const locales = getAvailableLocales();
- * if (locales.es) setLocale(locales.es); // Type-safe!
- * ```
  *
  * @example
  * ```typescript
@@ -153,17 +153,16 @@ export type AvailableLocalesMap = {
  * console.log(Object.keys(locales));
  * ```
  *
- * @see
- * - iOS: {@link https://developer.apple.com/documentation/foundation/nslocale NSLocale Documentation}
- * - Android: {@link https://developer.android.com/reference/java/util/Locale Java Locale Documentation}
+ * @see getAvailableLocalesInfo - Same list with display names, for pickers
  */
 export function getAvailableLocales(): AvailableLocalesMap {
-  const localesArray = getNative().getAvailableLocales();
-  const localesMap: AvailableLocalesMap = {};
-  for (const locale of localesArray) {
-    localesMap[locale] = locale as Locale;
+  if (availableLocalesCache !== undefined) return availableLocalesCache;
+  const localesMap: Partial<Record<Locale, Locale>> = {};
+  for (const locale of getNative().getAvailableLocales()) {
+    localesMap[locale as Locale] = locale as Locale;
   }
-  return localesMap;
+  availableLocalesCache = Object.freeze(localesMap);
+  return availableLocalesCache;
 }
 
 /**

@@ -15,8 +15,11 @@ export function toTimestampOrNull(date: DateInput): number | null {
   if (typeof date === 'number') {
     timestamp = date;
   } else if (typeof date === 'string') {
+    // Resolve the binding outside the try: a missing native module must surface
+    // its setup error, not masquerade as invalid input.
+    const native = getNative();
     try {
-      timestamp = getNative().parse(date);
+      timestamp = native.parse(date);
     } catch {
       return null;
     }
@@ -57,8 +60,9 @@ export function toTimestamp(date: DateInput): number {
  */
 export function componentsOrNull(date: DateInput): DateComponents | null {
   if (typeof date === 'string') {
+    const native = getNative();
     try {
-      return getNative().getComponentsFromString(date);
+      return native.getComponentsFromString(date);
     } catch {
       return null;
     }
