@@ -5,11 +5,15 @@
 #include "fakes/ScopedTimezone.hpp"
 
 #include <cmath>
+#include <limits>
+#include <stdexcept>
 
 using namespace nativedate::core;
 using nativedate::test::ScopedTimezone;
 
 namespace {
+constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+constexpr double kInf = std::numeric_limits<double>::infinity();
 constexpr double kJan1_2024 = 1704067200000.0;     // 2024-01-01T00:00:00Z (Monday)
 constexpr double kTuesday = 1709647629045.0;       // 2024-03-05T14:07:09.045Z
 constexpr double kJan31_2024 = 1706695200000.0;    // 2024-01-31T10:00:00Z
@@ -134,6 +138,46 @@ TEST_CASE("diff in months and years counts calendar boundaries (TZ=UTC)") {
     CHECK(diff(kJan15_2024, kDec15_2023, Unit::Year) == 1);
 }
 
+TEST_CASE("add rejects invalid timestamps, non-finite amounts and out-of-range results") {
+    const Unit units[] = {Unit::Millisecond, Unit::Second, Unit::Minute, Unit::Hour,
+                          Unit::Day, Unit::Week, Unit::Month, Unit::Year};
+    for (Unit unit : units) {
+        CHECK_THROWS_AS(add(kNaN, 1, unit), std::invalid_argument);
+        CHECK_THROWS_AS(add(kInf, 1, unit), std::invalid_argument);
+        CHECK_THROWS_AS(add(1e20, 1, unit), std::invalid_argument);
+        CHECK_THROWS_AS(add(kJan1_2024, kNaN, unit), std::invalid_argument);
+        CHECK_THROWS_AS(add(kJan1_2024, kInf, unit), std::invalid_argument);
+        CHECK_THROWS_AS(add(kJan1_2024, -kInf, unit), std::invalid_argument);
+        CHECK_THROWS_AS(subtract(kJan1_2024, kNaN, unit), std::invalid_argument);
+    }
+    CHECK_THROWS_AS(add(kJan1_2024, 1e300, Unit::Millisecond), std::invalid_argument);
+    CHECK_THROWS_AS(add(kJan1_2024, 1e13, Unit::Second), std::invalid_argument);
+    CHECK_THROWS_AS(add(MAX_TIMESTAMP_MS, 1, Unit::Millisecond), std::invalid_argument);
+    CHECK_THROWS_AS(add(-MAX_TIMESTAMP_MS, -1, Unit::Millisecond), std::invalid_argument);
+    CHECK(add(MAX_TIMESTAMP_MS - 1, 1, Unit::Millisecond) == MAX_TIMESTAMP_MS);
+}
+
+TEST_CASE("month and year amounts must be whole numbers and stay within the date range (TZ=UTC)") {
+    ScopedTimezone utc("UTC");
+    CHECK_THROWS_AS(add(kJan15_2024, 1.5, Unit::Month), std::invalid_argument);
+    CHECK_THROWS_AS(add(kJan15_2024, -0.25, Unit::Year), std::invalid_argument);
+    CHECK(add(kJan15_2024, 1.0, Unit::Month) == add(kJan15_2024, 1, Unit::Month));
+    CHECK(add(kJan15_2024, 1.5, Unit::Day) == kJan15_2024 + 36 * MS_PER_HOUR); // duration units keep fractions
+
+    // Amounts that used to overflow `int` month arithmetic now throw instead.
+    CHECK_THROWS_AS(add(kJan15_2024, 2147483647.0, Unit::Month), std::invalid_argument);
+    CHECK_THROWS_AS(add(kJan15_2024, -2147483648.0, Unit::Month), std::invalid_argument);
+    CHECK_THROWS_AS(add(kJan15_2024, 1e15, Unit::Year), std::invalid_argument);
+    CHECK_THROWS_AS(add(kJan15_2024, 300000, Unit::Year), std::invalid_argument);
+    CHECK_THROWS_AS(add(kJan15_2024, -300000, Unit::Year), std::invalid_argument);
+    // Large but representable amounts work with 64-bit month math.
+    CHECK(add(kJan15_2024, 12000, Unit::Month) == add(kJan15_2024, 1000, Unit::Year));
+    // Local conversions are bounded by libc (Darwin's mktime rejects years before 1900).
+    CHECK(add(kJan15_2024, -1200, Unit::Month) == add(kJan15_2024, -100, Unit::Year));
+    CHECK(timestampToComponents(add(kJan15_2024, 1000, Unit::Year), true).year == 3024);
+    CHECK(timestampToComponents(add(kJan15_2024, -100, Unit::Year), true).year == 1924);
+}
+
 TEST_CASE("clamp, min and max") {
     CHECK(clamp(5, 1, 10) == 5);
     CHECK(clamp(-5, 1, 10) == 1);
@@ -143,6 +187,41 @@ TEST_CASE("clamp, min and max") {
     CHECK(min({-1}) == -1);
     CHECK(std::isnan(min({})));
     CHECK(std::isnan(max({})));
+}
+
+TEST_CASE("clamp, min and max propagate NaN regardless of position") {
+    CHECK(std::isnan(clamp(kNaN, 1, 10)));
+    CHECK(std::isnan(clamp(5, kNaN, 10)));
+    CHECK(std::isnan(clamp(5, 1, kNaN)));
+    CHECK(clamp(5, -kInf, kInf) == 5);
+
+    CHECK(std::isnan(min({kNaN})));
+    CHECK(std::isnan(min({kNaN, 1, 2})));
+    CHECK(std::isnan(min({1, kNaN, 2})));
+    CHECK(std::isnan(min({1, 2, kNaN})));
+    CHECK(std::isnan(max({kNaN, 1, 2})));
+    CHECK(std::isnan(max({1, kNaN, 2})));
+    CHECK(std::isnan(max({1, 2, kNaN})));
+    CHECK(min({2, -kInf}) == -kInf);
+    CHECK(max({2, kInf}) == kInf);
+}
+
+TEST_CASE("predicates return false for invalid timestamps instead of throwing") {
+    CHECK_FALSE(isSame(kNaN, kJan1_2024, Unit::Day));
+    CHECK_FALSE(isSame(kJan1_2024, kInf, Unit::Day));
+    CHECK_FALSE(isSame(1e20, 1e20, Unit::Year));
+    CHECK_FALSE(isBefore(kNaN, 1));
+    CHECK_FALSE(isAfter(kNaN, 1));
+}
+
+TEST_CASE("startOf, endOf and diff reject invalid timestamps") {
+    CHECK_THROWS_AS(startOf(kNaN, Unit::Day), std::invalid_argument);
+    CHECK_THROWS_AS(startOf(kInf, Unit::Second), std::invalid_argument);
+    CHECK_THROWS_AS(endOf(1e20, Unit::Day), std::invalid_argument);
+    CHECK_THROWS_AS(endOf(kNaN, Unit::Hour), std::invalid_argument);
+    CHECK_THROWS_AS(diff(kNaN, 0, Unit::Day), std::invalid_argument);
+    CHECK_THROWS_AS(diff(0, kInf, Unit::Month), std::invalid_argument);
+    CHECK_THROWS_AS(truncateToUnit(kNaN, Unit::Day), std::invalid_argument);
 }
 
 TEST_CASE("getMillisForUnit") {

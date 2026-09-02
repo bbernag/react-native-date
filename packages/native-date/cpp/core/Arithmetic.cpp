@@ -2,51 +2,82 @@
 
 #include "Civil.hpp"
 
+#include <cmath>
 #include <limits>
+#include <stdexcept>
 
 namespace nativedate::core {
 
+namespace {
+
+constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
+
+// Any month count beyond this puts the result outside the timestamp range
+// (MAX_TIMESTAMP_DAYS / 28 days), so larger amounts are rejected before they
+// can overflow the int fields of InternalDateComponents.
+constexpr int64_t MAX_MONTH_AMOUNT = 4000000;
+
+/** Calendar units (month/year) require whole amounts; returns the integral value. */
+int64_t requireIntegralAmount(double amount) {
+    requireFiniteAmount(amount);
+    if (amount != std::floor(amount)) {
+        throw std::invalid_argument("Invalid amount: month and year arithmetic requires a whole number");
+    }
+    if (std::fabs(amount) > static_cast<double>(MAX_MONTH_AMOUNT)) {
+        throw std::invalid_argument("Invalid amount: result would be outside the supported date range");
+    }
+    return static_cast<int64_t>(amount);
+}
+
+double addDuration(double timestamp, double amount, int64_t unitMs) {
+    double result = timestamp + amount * static_cast<double>(unitMs);
+    if (!isValidTimestamp(result)) {
+        throw std::invalid_argument("Invalid timestamp: result is outside the supported range (+/-8.64e15 ms)");
+    }
+    return result;
+}
+
+/** Add whole months to local components, clamping the day to the target month (Q1). */
+double addMonths(double timestamp, int64_t months) {
+    InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
+    const int64_t totalMonths = static_cast<int64_t>(dc.year) * 12 + (dc.month - 1) + months;
+    dc.year = static_cast<int>(floorDiv(totalMonths, 12));
+    dc.month = static_cast<int>(posMod(totalMonths, 12)) + 1;
+    // Clamp day to valid range for new month
+    const int maxDay = daysInMonth(dc.year, dc.month);
+    if (dc.day > maxDay) {
+        dc.day = maxDay;
+    }
+    return componentsToTimestampLocal(dc);
+}
+
+} // namespace
+
+// Amount policy: every unit rejects non-finite amounts. Millisecond..week accept
+// fractional amounts (duration math). Month and year require whole numbers and
+// throw otherwise, because "1.5 months" has no calendar meaning; the day of
+// month is clamped to the target month (Jan 31 + 1 month = Feb 29/28).
 double add(double timestamp, double amount, Unit unit) {
-    int64_t amountInt = static_cast<int64_t>(amount);
+    requireValidTimestamp(timestamp);
+    requireFiniteAmount(amount);
 
     switch (unit) {
         case Unit::Millisecond:
-            return timestamp + amount;
+            return addDuration(timestamp, amount, 1);
         case Unit::Second:
-            return timestamp + (amount * MS_PER_SECOND);
+            return addDuration(timestamp, amount, MS_PER_SECOND);
         case Unit::Minute:
-            return timestamp + (amount * MS_PER_MINUTE);
+            return addDuration(timestamp, amount, MS_PER_MINUTE);
         case Unit::Hour:
-            return timestamp + (amount * MS_PER_HOUR);
+            return addDuration(timestamp, amount, MS_PER_HOUR);
         case Unit::Day:
-            return timestamp + (amount * MS_PER_DAY);
+            return addDuration(timestamp, amount, MS_PER_DAY);
         case Unit::Week:
-            return timestamp + (amount * MS_PER_WEEK);
-        case Unit::Month: {
-            InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
-            int totalMonths = dc.month - 1 + static_cast<int>(amountInt);
-            dc.year += totalMonths / 12;
-            dc.month = (totalMonths % 12) + 1;
-            if (dc.month <= 0) {
-                dc.month += 12;
-                dc.year -= 1;
-            }
-            // Clamp day to valid range for new month
-            int maxDay = daysInMonth(dc.year, dc.month);
-            if (dc.day > maxDay) {
-                dc.day = maxDay;
-            }
-            return componentsToTimestampLocal(dc);
-        }
-        case Unit::Year: {
-            InternalDateComponents dc = timestampToComponents(timestamp, false); // local time
-            dc.year += amountInt;
-            // Handle Feb 29 -> Feb 28 for non-leap years
-            if (dc.month == 2 && dc.day == 29 && !isLeapYear(dc.year)) {
-                dc.day = 28;
-            }
-            return componentsToTimestampLocal(dc);
-        }
+            return addDuration(timestamp, amount, MS_PER_WEEK);
+        case Unit::Month:
+            return addMonths(timestamp, requireIntegralAmount(amount));
+        case Unit::Year:
+            return addMonths(timestamp, requireIntegralAmount(amount) * 12);
     }
     return timestamp;
 }
@@ -66,6 +97,9 @@ bool isAfter(double timestamp1, double timestamp2) {
 }
 
 bool isSame(double timestamp1, double timestamp2, Unit unit) {
+    if (!isValidTimestamp(timestamp1) || !isValidTimestamp(timestamp2)) {
+        return false; // predicates never throw (Q3)
+    }
     double start1 = truncateToUnit(timestamp1, unit);
     double start2 = truncateToUnit(timestamp2, unit);
     return start1 == start2;
@@ -74,6 +108,7 @@ bool isSame(double timestamp1, double timestamp2, Unit unit) {
 // MARK: - Helpers
 
 double startOf(double timestamp, Unit unit) {
+    requireValidTimestamp(timestamp);
     int64_t ms = static_cast<int64_t>(timestamp);
 
     // Fast path for sub-day units (timezone-independent)
@@ -93,6 +128,7 @@ double startOf(double timestamp, Unit unit) {
 }
 
 double endOf(double timestamp, Unit unit) {
+    requireValidTimestamp(timestamp);
     int64_t ms = static_cast<int64_t>(timestamp);
 
     // Fast path for sub-day units (timezone-independent)
@@ -149,6 +185,8 @@ double endOf(double timestamp, Unit unit) {
 }
 
 double diff(double timestamp1, double timestamp2, Unit unit) {
+    requireValidTimestamp(timestamp1);
+    requireValidTimestamp(timestamp2);
     int64_t diffMs = static_cast<int64_t>(timestamp1) - static_cast<int64_t>(timestamp2);
 
     switch (unit) {
@@ -178,7 +216,15 @@ double diff(double timestamp1, double timestamp2, Unit unit) {
     return 0;
 }
 
+// NaN policy (D-13): these never throw. clamp/min/max propagate NaN like
+// IEEE arithmetic would, so a NaN anywhere in the input yields NaN regardless
+// of position. min/max of an empty list is NaN; the JS facade throws on empty
+// input before reaching native.
+
 double clamp(double timestamp, double minVal, double maxVal) {
+    if (std::isnan(timestamp) || std::isnan(minVal) || std::isnan(maxVal)) {
+        return kNaN;
+    }
     if (timestamp < minVal) return minVal;
     if (timestamp > maxVal) return maxVal;
     return timestamp;
@@ -186,10 +232,13 @@ double clamp(double timestamp, double minVal, double maxVal) {
 
 double min(const std::vector<double>& timestamps) {
     if (timestamps.empty()) {
-        return std::numeric_limits<double>::quiet_NaN();
+        return kNaN;
     }
     double result = timestamps[0];
     for (size_t i = 1; i < timestamps.size(); ++i) {
+        if (std::isnan(timestamps[i])) {
+            return kNaN;
+        }
         if (timestamps[i] < result) {
             result = timestamps[i];
         }
@@ -199,10 +248,13 @@ double min(const std::vector<double>& timestamps) {
 
 double max(const std::vector<double>& timestamps) {
     if (timestamps.empty()) {
-        return std::numeric_limits<double>::quiet_NaN();
+        return kNaN;
     }
     double result = timestamps[0];
     for (size_t i = 1; i < timestamps.size(); ++i) {
+        if (std::isnan(timestamps[i])) {
+            return kNaN;
+        }
         if (timestamps[i] > result) {
             result = timestamps[i];
         }
