@@ -1811,19 +1811,19 @@ __metadata:
     eslint-plugin-react-native: "npm:^5.0.0"
     jest: "npm:^30.2.0"
     lefthook: "npm:^2.0.3"
-    nitrogen: "npm:0.35.7"
+    nitrogen: "npm:0.37.1"
     prettier: "npm:^2.8.8"
     react: "npm:19.1.0"
     react-native: "npm:0.81.1"
     react-native-builder-bob: "npm:^0.40.16"
-    react-native-nitro-modules: "npm:0.35.7"
+    react-native-nitro-modules: "npm:0.37.1"
     ts-jest: "npm:^29.4.6"
     turbo: "npm:^2.5.6"
     typescript: "npm:^5.9.2"
   peerDependencies:
     react: "*"
     react-native: "*"
-    react-native-nitro-modules: ">=0.35.0 <0.36.0"
+    react-native-nitro-modules: ">=0.37.0 <0.38.0"
   languageName: unknown
   linkType: soft
 
@@ -4023,7 +4023,7 @@ __metadata:
     expo-status-bar: "npm:~3.0.9"
     react: "npm:19.1.0"
     react-native: "npm:0.81.5"
-    react-native-nitro-modules: "npm:0.35.7"
+    react-native-nitro-modules: "npm:0.37.1"
     typescript: "npm:~5.9.2"
   languageName: unknown
   linkType: soft
@@ -4053,7 +4053,7 @@ __metadata:
     react-native: "npm:0.81.1"
     react-native-builder-bob: "npm:^0.40.16"
     react-native-monorepo-config: "npm:^0.1.9"
-    react-native-nitro-modules: "npm:0.35.7"
+    react-native-nitro-modules: "npm:0.37.1"
   languageName: unknown
   linkType: soft
 
@@ -11516,18 +11516,18 @@ __metadata:
   languageName: node
   linkType: hard
 
-"nitrogen@npm:0.35.7":
-  version: 0.35.7
-  resolution: "nitrogen@npm:0.35.7"
+"nitrogen@npm:0.37.1":
+  version: 0.37.1
+  resolution: "nitrogen@npm:0.37.1"
   dependencies:
     chalk: "npm:^5.3.0"
-    react-native-nitro-modules: "npm:^0.35.7"
+    react-native-nitro-modules: "npm:^0.37.1"
     ts-morph: "npm:^28.0.0"
     yargs: "npm:^18.0.0"
-    zod: "npm:^4.0.5"
+    zod: "npm:^4.4.3"
   bin:
     nitrogen: lib/index.js
-  checksum: 10c0/1dd8fe72c5d90991038571fc3009489802f0b8d2c760db40cc83b119576e122c5e22a22b0391f0e4cb6fdb178fc389f143c9b16b67be80a14e4617832a6f7fab
+  checksum: 10c0/2f0aef19427a58dde9c3e9da9151381c21e0479c0e7fceb55131039201113f3eacd8c5cc01e5b408d4ba86dba8d9a7210d7189144cc35fdde83db950f34c29bd
   languageName: node
   linkType: hard
 
@@ -12469,13 +12469,13 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-nitro-modules@npm:0.35.7, react-native-nitro-modules@npm:^0.35.7":
-  version: 0.35.7
-  resolution: "react-native-nitro-modules@npm:0.35.7"
+"react-native-nitro-modules@npm:0.37.1, react-native-nitro-modules@npm:^0.37.1":
+  version: 0.37.1
+  resolution: "react-native-nitro-modules@npm:0.37.1"
   peerDependencies:
     react: "*"
     react-native: "*"
-  checksum: 10c0/f0c9167655032952bfdadd6802eade60796df2021e29a451ec205843dd6e95c6cb274d77c77534703a5d5d55e45c6f7ca1900a94813de3e0bdb0f3aa654cf3fc
+  checksum: 10c0/5178f2ee891cb746b084fdf382b6020e366d8e4a81922a3f1d60a453d34fca6ebb1b00c4c28785c36385bc182ab76a30cba70441c39abbc25d3ad54db612e46e
   languageName: node
   linkType: hard
 
@@ -15121,10 +15121,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"zod@npm:^3.25.0 || ^4.0.0, zod@npm:^4.0.5":
+"zod@npm:^3.25.0 || ^4.0.0":
   version: 4.3.5
   resolution: "zod@npm:4.3.5"
   checksum: 10c0/5a2db7e59177a3d7e202543f5136cb87b97b047b77c8a3d824098d3fa8b80d3aa40a0a5f296965c3b82dfdccdd05dbbfacce91347f16a39c675680fd7b1ab109
+  languageName: node
+  linkType: hard
+
+"zod@npm:^4.4.3":
+  version: 4.6.5
+  resolution: "zod@npm:4.6.5"
+  checksum: 10c0/32eb6c5e98becbe045675b2141c3611451c16ba567f9779231d79af41c4d651ca1c22f154aef7e6c6e77b929f23e43f1154ca05b82e119e922353725d6776af5
   languageName: node
   linkType: hard
 
